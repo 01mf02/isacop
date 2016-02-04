@@ -10,7 +10,6 @@ let infer = ref 0;;
 let depth = ref 0;;
 let depthinfer = ref 0;;
 
-let classifier : (int FClassifier.t) ref = ref (FClassifier.empty ())
 
 let eq (sub, off) l1 l2 = eq_lit sub l1 l2;;
 
@@ -31,36 +30,7 @@ let print_nclause (subst, _) clause = print_clause clause;;
 let print_clause (subst, _) clause = print_clause (List.map (inst_lit subst) clause);;
 
 
-let weaken_features sf =
-  if !weaken_feature = 0. then Fm.empty else
-  if !weaken_feature = 1. then sf else
-  Fm.map (fun w -> w *. !weaken_feature) sf
-
-let update_features sf tm =
-  let sf = weaken_features sf in
-  let ftrs = featuresp Fm.empty tm in
-  Fm.fold (fun ftr _ sf -> Fm.add ftr 1. sf) ftrs sf
-
-
-
-let relevance feats (tfreq, sfreq) =
-  let fl idf w = idf *. !negweight
-  and fi idf (w, sf) = idf *. log (!posweight *. sf /. tfreq)
-  and fr idf sf = idf *. log (1. -. sf /. (tfreq +. 1.)) in
-  FClassifier.relevance (FClassifier.get_idf !classifier) fl fi fr feats sfreq
-  +. !initwei *. log tfreq
-
-let relevance_sorted fea l =
-  let x_score = List.rev_map (fun (x, freqs) -> x, relevance fea freqs) l in
-  List.stable_sort (fun (_, a) (_, b) -> compare b a) x_score
-
-let treat_scores = function
-  [] -> []
-| [(x, _)] -> [(x, singlew)]
-| (x, _) :: t -> (x, optw) :: List.map (fun (x, _) -> (x, nonoptw)) t
-
-let relevancel fea l =
-  List.map (fun x -> (x, nonoptw)) l
+let relevancel l = List.map (fun x -> (x, nonoptw)) l
 
 
 
@@ -69,32 +39,36 @@ let relevancel fea l =
 let rec prove sub hist alt (todo, prf) = function
   | [] -> todo (sub, alt, prf)
   | (lit1 :: rest as cl) ->
-     let (path, fea, lem, lim) = hist in
+     let (path, lem, lim) = hist in
      (*  print_clause sub (lit1 :: rest); Format.print_string "\t\t"; print_clause sub (List.rev path); Format.print_char '\n';
      print_nclause sub (lit1 :: rest); Format.print_string "\t\t"; print_nclause sub (List.rev path); Format.print_char '\n';*)
      if (List.exists (fun x -> List.exists (eq sub x) path)) cl then alt () else
      if List.exists (eq sub lit1) lem then prove sub hist (if cut1 then alt else (fun () -> reduce sub lit1 rest hist alt (todo, prf) (negate lit1) path)) (todo, (fst sub, Lem lit1) :: prf) rest else
      reduce sub lit1 rest hist alt (todo, prf) (negate lit1) path
 
-and reduce sub lit1 rest ((path,fea,lem,lim) as hist) alt (todo, prf) neglit = function
+and reduce sub lit1 rest ((path,lem,lim) as hist) alt (todo, prf) neglit = function
   | plit :: pt -> (match unify sub neglit plit with
     | Some sub2 -> prove sub2 hist (if !cut2 then alt else (fun () -> reduce sub lit1 rest hist alt (todo, prf) neglit pt)) (todo, (fst sub, Pat lit1) :: prf) rest
     | None -> reduce sub lit1 rest hist alt (todo, prf) neglit pt)
   | [] ->
-      let nfea = if !upd_fea then update_features fea lit1 else fea in
-      let hist = path, nfea, lem, lim in
+      let hist = path, lem, lim in
       let dbs = Database.db_entries sub neglit in
-      extend sub lit1 rest hist alt (todo, prf) (relevancel nfea dbs)
+      extend sub lit1 rest hist alt (todo, prf) (relevancel dbs)
 
-and extend sub lit1 rest ((path, fea, lem, lim) as hist) alt (todo, prf) = function
+and extend sub lit1 rest ((path, lem, lim) as hist) alt (todo, prf) = function
   | (((_,_,vars,hsh) as eh), chwei) :: et -> (match if lim <= 0 && vars > 0 then None else unify_rename sub (snd lit1) eh with
     | Some (sub2, cla1) ->
-      let ntodo (sub, nalt, prf) = prove sub (path, fea, lit1 :: lem, lim) (if !cut3 then alt else nalt) (todo, prf) rest in
-      infer := !infer + 1; prove sub2 (lit1 :: path, fea, lem, lim - !chwei) (fun () -> extend sub lit1 rest hist alt (todo, prf) et) (ntodo, (fst sub, Res (lit1, path, lem, hsh)) :: prf) cla1
+      let ntodo (sub, nalt, prf) = prove sub (path, lit1 :: lem, lim) (if !cut3 then alt else nalt) (todo, prf) rest in
+      infer := !infer + 1; prove sub2 (lit1 :: path, lem, lim - !chwei) (fun () -> extend sub lit1 rest hist alt (todo, prf) et) (ntodo, (fst sub, Res (lit1, path, lem, hsh)) :: prf) cla1
     | None -> extend sub lit1 rest hist alt (todo, prf) et)
   | [] -> alt ()
 
-let prove lim = prove (empty_sub, 0) ([], Fm.empty, [], lim) (fun () -> ()) ((fun (_,_,prf) -> raise (Solved prf)), []) [(hash,[])];;
+let prove lim = prove
+  (empty_sub, 0)
+  ([], [], lim)
+  (fun () -> ())
+  ((fun (_,_,prf) -> raise (Solved prf)), [])
+  [(hash,[])]
 
 
 exception Alarm;;
@@ -116,9 +90,8 @@ let nontriv_clause cl =
 let simplify_matrix mat = List.map Utils.nub (List.filter nontriv_clause mat)
 
 let leancop file =
-  if !do_nbayes then classifier := FClassifier.try_load (!datai);
   let mat = simplify_matrix (file_mat true !def true file) in
-  Database.axioms2db !classifier mat;
+  Database.axioms2db mat;
   while !depth < 1000 do
     depthinfer := !infer;
     if !depthsec = 0 then prove (!nonoptw * !depth)
