@@ -9,10 +9,6 @@ let cut2 = ref true;; (* cut after path step *)
 let cut3 = ref true;; (* cut after lit step *)
 let def = ref true;;      (* do definitional CNF. More predicates, less clauses *)
 
-(* Weight of steps. 100 for all 3 is like leanCoP. *)
-let optw = ref 1;;        (* weight of an optimal step *)
-let singlew = ref 1;;     (* weight of an only-choice step *)
-let nonoptw = ref 1;;     (* weight of a non-optimal step *)
 
 (* NBayes params *)
 let initwei = ref 2.0;;    (* initial weight of previous example number *)
@@ -40,9 +36,6 @@ let speclist = [
   ("-nb-poswei", Arg.Set_float posweight, "%f\t\tSet NB cooccurring feature weight (default: 2.0)");
   ("-nb-negwei", Arg.Set_float negweight, "%f\t\tSet NB conj-only feature weight (default: -6.0)");
   ("-nb-invwei", Arg.Set_float invwei, "%f\t\tSet NB contra-only feature weight (default: -0.05)");
-  ("-step", Arg.Set_int nonoptw, "%i\t\tSet step granularity (default: 1)");
-  ("-step-single", Arg.Set_int singlew, "%i\tSet single-step subtract (default: 1)");
-  ("-step-opt", Arg.Set_int optw, "%i\t\tSet chosen-step subtract (default: 1)");
   ("-depthsec", Arg.Set_int depthsec, "%i\t\tMaximum time in seconds to spend at a depth (default: unlimited)");
   ("-datai", Arg.Set_string datai, "%s\t\tSet the training data file (default: datai)")
 ];;

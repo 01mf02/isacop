@@ -30,21 +30,18 @@ let print_nclause (subst, _) clause = print_clause clause;;
 let print_clause (subst, _) clause = print_clause (List.map (inst_lit subst) clause);;
 
 
-let relevancel l = List.map (fun x -> (x, nonoptw)) l
 
 
 
 
 
-let rec prove sub hist alt (todo, prf) = function
+let rec prove sub ((path, lem, lim) as hist) alt (todo, prf) = function
   | [] -> todo (sub, alt, prf)
   | (lit1 :: rest as cl) ->
-     let (path, lem, lim) = hist in
-     (*  print_clause sub (lit1 :: rest); Format.print_string "\t\t"; print_clause sub (List.rev path); Format.print_char '\n';
-     print_nclause sub (lit1 :: rest); Format.print_string "\t\t"; print_nclause sub (List.rev path); Format.print_char '\n';*)
-     if (List.exists (fun x -> List.exists (eq sub x) path)) cl then alt () else
-     if List.exists (eq sub lit1) lem then prove sub hist (if cut1 then alt else (fun () -> reduce sub lit1 rest hist alt (todo, prf) (negate lit1) path)) (todo, (fst sub, Lem lit1) :: prf) rest else
-     reduce sub lit1 rest hist alt (todo, prf) (negate lit1) path
+     if List.exists (fun x -> List.exists (eq sub x) path) cl then alt () else
+     if List.exists (eq sub lit1) lem then prove sub hist
+       (if cut1 then alt else (fun () -> reduce sub lit1 rest hist alt (todo, prf) (negate lit1) path)) (todo, (fst sub, Lem lit1) :: prf) rest
+     else reduce sub lit1 rest hist alt (todo, prf) (negate lit1) path
 
 and reduce sub lit1 rest ((path,lem,lim) as hist) alt (todo, prf) neglit = function
   | plit :: pt -> (match unify sub neglit plit with
@@ -53,13 +50,14 @@ and reduce sub lit1 rest ((path,lem,lim) as hist) alt (todo, prf) neglit = funct
   | [] ->
       let hist = path, lem, lim in
       let dbs = Database.db_entries sub neglit in
-      extend sub lit1 rest hist alt (todo, prf) (relevancel dbs)
+      extend sub lit1 rest hist alt (todo, prf) dbs
 
 and extend sub lit1 rest ((path, lem, lim) as hist) alt (todo, prf) = function
-  | (((_,_,vars,hsh) as eh), chwei) :: et -> (match if lim <= 0 && vars > 0 then None else unify_rename sub (snd lit1) eh with
+  | ((_,_,vars,hsh) as eh) :: et ->
+    (match if lim <= 0 && vars > 0 then None else unify_rename sub (snd lit1) eh with
     | Some (sub2, cla1) ->
       let ntodo (sub, nalt, prf) = prove sub (path, lit1 :: lem, lim) (if !cut3 then alt else nalt) (todo, prf) rest in
-      infer := !infer + 1; prove sub2 (lit1 :: path, lem, lim - !chwei) (fun () -> extend sub lit1 rest hist alt (todo, prf) et) (ntodo, (fst sub, Res (lit1, path, lem, hsh)) :: prf) cla1
+      infer := !infer + 1; prove sub2 (lit1 :: path, lem, lim - 1) (fun () -> extend sub lit1 rest hist alt (todo, prf) et) (ntodo, (fst sub, Res (lit1, path, lem, hsh)) :: prf) cla1
     | None -> extend sub lit1 rest hist alt (todo, prf) et)
   | [] -> alt ()
 
@@ -85,7 +83,8 @@ let maxsec i f a =
 
 (* true if the clause does not contain instances of Px and ~Px *)
 let nontriv_clause cl =
-  List.for_all (fun (p1,a1) -> List.for_all (fun (p2,a2) -> p1 <> -p2 || a1 <> a2) cl) cl
+  List.for_all (fun (p1,a1) -> List.for_all (fun (p2,a2) ->
+    p1 <> -p2 || a1 <> a2) cl) cl
 
 let simplify_matrix mat = List.map Utils.nub (List.filter nontriv_clause mat)
 
@@ -94,8 +93,8 @@ let leancop file =
   Database.axioms2db mat;
   while !depth < 1000 do
     depthinfer := !infer;
-    if !depthsec = 0 then prove (!nonoptw * !depth)
-    else maxsec !depthsec (fun () -> prove (!nonoptw * !depth)) ();
+    if !depthsec = 0 then prove (!depth)
+    else maxsec !depthsec (fun () -> prove (!depth)) ();
     depth := !depth + 1
   done;
   (*cut3 := false;

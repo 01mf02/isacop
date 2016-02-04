@@ -41,5 +41,4 @@ let axioms2db axs =
   List.iter (cl2db predb) (hashtbl_keys predb)
 
 let db_entries sub neglit =
-  try Hashtbl.find db (fst neglit)
-  with Not_found -> []
+  try Hashtbl.find db (fst neglit) with Not_found -> []
