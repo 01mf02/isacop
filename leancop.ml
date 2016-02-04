@@ -1,7 +1,6 @@
 open Fof_parse
 open Cnf
 open Fof
-open Features
 open Arglean
 open Database
 
