@@ -2,8 +2,11 @@ structure Term =
 struct
 
 type variable = int
+type predicate = int
 datatype term = V of variable | A of int * term list
 type lit = int * term list
+
+val predicate_ord = int_ord
 
 val subst = Array.array (1000000, NONE : term option)
 val sh : variable list Unsynchronized.ref = Unsynchronized.ref []
@@ -82,7 +85,25 @@ end
 structure Database =
 struct
 
+
+(* (lit-arguments, rest-clause, vars, contrapositive hash) *)
+type contrapositive = (Term.term list * Term.lit list * int * int)
+
+structure PTable = Table(type key = Term.predicate val ord = Term.predicate_ord)
+
+(* for every predicate, store list of possible contrapositives *)
+val db : (contrapositive list) PTable.table = PTable.empty
+
+
+
+(* TODO! *)
+val hash = 0
+val hash_lit = (~hash, [])
+
+
 fun db_entries x y = []
+
+
 
 end
 
@@ -160,15 +181,12 @@ and extend sub lit1 rest (hist as (path, lem, lim)) alt (todo, prf) = fn
     | NONE => extend sub lit1 rest hist alt (todo, prf) et)
   | [] => alt ()
 
-(* TODO! *)
-val hash = 0
-
 fun prove2 lim = prove
   (Term.empty_sub, 0)
   ([], [], lim)
   (fn () => ())
   ((fn (_,_,prf) => raise (Solved prf)), [])
-  [(hash,[])]
+  [(Database.hash,[])]
 
 
 end
