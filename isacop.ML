@@ -124,14 +124,23 @@ exception Solved of (int list * proof) list
 fun prove sub (hist as (path, lem, lim)) alt (todo, prf) = fn
     [] => todo (sub, alt, prf)
   | (cl as lit1 :: rest) =>
-     if List.exists (fn x => List.exists (eq sub x) path) cl then alt ()
-     else if List.exists (eq sub lit1) lem then prove sub hist
-       (if cut1 then alt else (fn () => reduce sub lit1 rest hist alt (todo, prf) (Term.negate lit1) path)) (todo, (fst sub, Lem lit1) :: prf) rest
-     else reduce sub lit1 rest hist alt (todo, prf) (Term.negate lit1) path
+     let val cont = (fn () => reduce sub lit1 rest hist alt (todo, prf) (Term.negate lit1) path)
+         val nalt = if cut1 then alt else cont
+     in  if List.exists (fn x => List.exists (eq sub x) path) cl
+           then alt ()
+         else if List.exists (eq sub lit1) lem
+           then prove sub hist nalt (todo, (fst sub, Lem lit1) :: prf) rest
+         else
+           reduce sub lit1 rest hist alt (todo, prf) (Term.negate lit1) path
+     end
 and reduce sub lit1 rest (hist as (path,lem,lim)) alt (todo, prf) neglit = fn
-    plit :: pt => (case unify sub neglit plit of
-      SOME sub2 => prove sub2 hist (if cut2 then alt else (fn () => reduce sub lit1 rest hist alt (todo, prf) neglit pt)) (todo, (fst sub, Pat lit1) :: prf) rest
-    | NONE => reduce sub lit1 rest hist alt (todo, prf) neglit pt)
+    plit :: pt =>
+      let val cont = (fn () => reduce sub lit1 rest hist alt (todo, prf) neglit pt)
+          val nalt = if cut2 then alt else cont
+      in  case unify sub neglit plit of
+            SOME sub2 => prove sub2 hist nalt (todo, (fst sub, Pat lit1) :: prf) rest
+          | NONE => reduce sub lit1 rest hist alt (todo, prf) neglit pt
+      end
   | [] =>
       let val hist = (path, lem, lim)
           val dbs = Database.db_entries sub neglit
@@ -142,7 +151,11 @@ and extend sub lit1 rest (hist as (path, lem, lim)) alt (todo, prf) = fn
     (case (if lim <= 0 andalso vars > 0 then NONE else unify_rename sub (snd lit1) eh) of
       SOME (sub2, cla1) =>
       let val ntodo = fn (sub, nalt, prf) => prove sub (path, lit1 :: lem, lim) (if cut3 then alt else nalt) (todo, prf) rest
-      in  infer := !infer + 1; prove sub2 (lit1 :: path, lem, lim - 1) (fn () => extend sub lit1 rest hist alt (todo, prf) et) (ntodo, (fst sub, Res (lit1, path, lem, hsh)) :: prf) cla1
+          val nhist = (lit1 :: path, lem, lim - 1)
+          val nprf  = (fst sub, Res (lit1, path, lem, hsh)) :: prf
+          val nalt  = (fn () => extend sub lit1 rest hist alt (todo, prf) et)
+      in  infer := !infer + 1;
+          prove sub2 nhist nalt (ntodo, nprf) cla1
       end
     | NONE => extend sub lit1 rest hist alt (todo, prf) et)
   | [] => alt ()
