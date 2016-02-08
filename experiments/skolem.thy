@@ -62,3 +62,7 @@ proof (rule ccontr)
   qed
 qed
 
+ML_file "../isacop.ML"
+
+lemma "\<forall>x. P(x) \<or> \<not>P(x)"
+by (isacop 1)

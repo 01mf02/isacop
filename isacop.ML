@@ -28,8 +28,6 @@ sig
 
 include LIST
 
-val app2 : ('a -> 'b -> 'c) -> 'a list -> 'b list -> unit
-val all2 : ('a -> 'b -> bool) -> 'a list -> 'b list -> bool
 val elem : ''a -> ''a list -> bool
 val app_rest : 'a list -> ('a * 'a list -> 'b) -> 'a list -> unit
 
@@ -39,14 +37,6 @@ structure List : LIST =
 struct
 
 open List
-
-fun app2 f (x::xs) (y::ys) = (f x y; app2 f xs ys)
-  | app2 _ [] [] = ()
-  | app2 _ _ _ = raise Fail "list lengths differ"
-
-fun all2 f (x::xs) (y::ys) = f x y andalso all2 f xs ys
-  | all2 _ [] [] = true
-  | all2 _ _ _ = raise Fail "list lengths differ"
 
 (* run function for every element and all other elements of the list *)
 fun app_rest _ _ [] = ()
@@ -94,11 +84,11 @@ fun restore_subst env =
 
 
 
-fun unify (A(f, fa)) (A(g, ga)) = if f <> g then raise Unify else List.app2 unify fa ga
-  | unify (V(x)) tm = mapSubst (addSubst x tm) (unify tm) x
-  | unify tm (V(x)) = unify (V(x)) tm
+fun unify (A(f, fa), A(g, ga)) = if f <> g then raise Unify else ListPair.appEq unify (fa, ga)
+  | unify (V(x), tm) = mapSubst (addSubst x tm) (fn t => unify (tm, t)) x
+  | unify (tm, V(x)) = unify (V(x), tm)
 
-fun unifyList env l1 l2 = (restore_subst env; List.app2 unify l1 l2; !sh)
+fun unifyList env l1 l2 = (restore_subst env; ListPair.appEq unify (l1, l2); !sh)
 
 fun unifyLit env (h1, l1) (h2, l2) =
   if h1 <> h2 then raise Unify else unifyList env l1 l2
@@ -108,19 +98,17 @@ local
     | bump_small off (A(f, a)) = A(f, List.map (bump_small off) a)
 in
   (* Unification with renaming of the second argument *)
-  fun unify_rename off t1 t2 = case (t1, t2) of
-      (A(f,fa), A(g,ga)) => if f <> g then raise Unify else List.app2 (unify_rename off) fa ga
+  fun unify_rename off (t1, t2) = case (t1, t2) of
+      (A(f,fa), A(g,ga)) => if f <> g then raise Unify else ListPair.appEq (unify_rename off) (fa, ga)
     | (_, V x) =>
         let val x = x + off
-        in  mapSubst (addSubst x t1) (unify_rename 0 t1) x
+        in  mapSubst (addSubst x t1) (fn t => unify_rename 0 (t1, t)) x
         end
-    | (V x, _) => case Array.sub (subst, x) of
-        SOME t => unify_rename off t t2
-      | NONE => addSubst x (bump_small off t2)
+    | (V x, _) => mapSubst (addSubst x (bump_small off t2)) (fn t => unify_rename off (t, t2)) x
 
   fun unify_rename_subst off l1 l2 env list =
     (restore_subst env;
-    List.app2 (unify_rename off) l1 l2;
+    ListPair.appEq (unify_rename off) (l1, l2);
     (!sh, List.map (fn (p,l) => (p,List.map (bump_small off) l)) list))
 end
 
@@ -128,12 +116,12 @@ local
   fun varEqTerm x (V y) = x = y orelse mapSubst false (varEqTerm x) y
     | varEqTerm _ (A _) = false
 
-  fun eqTerm tm1 tm2 = case (tm1,tm2) of
-      (A(f,fargs),A(g,gargs)) => (f = g andalso List.all2 eqTerm fargs gargs)
-    | (V(x),_) => mapSubst (varEqTerm x tm2) (eqTerm tm1) x
-    | (_,V(_)) => eqTerm tm2 tm1
+  fun eqTerm (tm1, tm2) = case (tm1,tm2) of
+      (A(f,fargs),A(g,gargs)) => (f = g andalso ListPair.allEq eqTerm (fargs, gargs))
+    | (V(x),_) => mapSubst (varEqTerm x tm2) (fn t => eqTerm (tm1, t)) x
+    | (_,V(_)) => eqTerm (tm2, tm1)
 in
-  fun eqLit env (p,pa) (q,qa) = p = q andalso (restore_subst env; List.all2 eqTerm pa qa)
+  fun eqLit env (p,pa) (q,qa) = p = q andalso (restore_subst env; ListPair.allEq eqTerm (pa, qa))
 end
 
 val emptySub = []
@@ -208,8 +196,18 @@ end
 fun db_entries neglit = Array.sub (db, nat_of_int neglit)
 end
 
+signature ISACOP =
+sig
+
+structure Classical: CLASSICAL
+
+end
+
 structure IsaCoP =
 struct
+
+val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20);
+
 
 val cut1 = true
 val cut2 = true
@@ -288,10 +286,25 @@ fun prove2 lim = prove
   ((fn (_,_,prf) => raise (Solved prf)), [])
   [(Database.hashek,[])]
 
-end
 
+fun isacop_tac ctxt lim i st =
+  let
+    val start = Timing.start ();
+    val lim = Config.get ctxt depth_limit;
+  in
+    SELECT_GOAL (Object_Logic.atomize_prems_tac ctxt 1 THEN no_tac) i st
+  end;
 
 val _ =
-  let val oc = TextIO.openOut "bla";
-  in TextIO.closeOut oc
+  Theory.setup
+    (Method.setup @{binding isacop}
+      (Scan.lift (Scan.option Parse.nat) >>
+        (fn NONE => SIMPLE_METHOD' o blast_tac
+          | SOME lim => (fn ctxt =>
+              (writeln ("IsaCoP with lim = " ^ Int.toString lim);
+              SIMPLE_METHOD' (isacop_tac ctxt lim)))))
+      "lean connection calculus prover");
 end
+
+exception Undefined
+fun undefined () = raise Undefined
