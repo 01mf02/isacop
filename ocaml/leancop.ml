@@ -14,14 +14,14 @@ let eq (sub, off) l1 l2 = eq_lit sub l1 l2;;
 
 let unify (sub, off) l1 l2 = try Some (unify_lit sub l1 l2, off) with Unify -> None;;
 
-let unify_rename (s, off) args1 (args2, rest, vars, _) =
+let unify_rename (s, off) args1 (args2, rest, vars) =
   try Some(if vars = 0 then ((unify_list s args1 args2, off), rest) else
     let s, rest = unify_rename_subst off args1 args2 s rest in ((s, off + vars), rest))
   with Unify -> None;;
 
 (* print_clause (fst sub) (lit1 :: rest); print_string "\t\t"; print_clause (fst sub) (List.rev path); print_char '\n'; *)
 
-type proof = Lem of lit | Pat of lit | Res of (lit * lit list * lit list * int);;
+type proof = Lem of lit | Pat of lit | Res of (lit * lit list * lit list);;
 exception Solved of (int list * proof) list;;
 
 
@@ -52,11 +52,11 @@ and reduce sub lit1 rest ((path,lem,lim) as hist) alt (todo, prf) neglit = funct
       extend sub lit1 rest hist alt (todo, prf) dbs
 
 and extend sub lit1 rest ((path, lem, lim) as hist) alt (todo, prf) = function
-  | ((_,_,vars,hsh) as eh) :: et ->
+  | ((_,_,vars) as eh) :: et ->
     (match if lim <= 0 && vars > 0 then None else unify_rename sub (snd lit1) eh with
     | Some (sub2, cla1) ->
       let ntodo (sub, nalt, prf) = prove sub (path, lit1 :: lem, lim) (if !cut3 then alt else nalt) (todo, prf) rest in
-      infer := !infer + 1; prove sub2 (lit1 :: path, lem, lim - 1) (fun () -> extend sub lit1 rest hist alt (todo, prf) et) (ntodo, (fst sub, Res (lit1, path, lem, hsh)) :: prf) cla1
+      infer := !infer + 1; prove sub2 (lit1 :: path, lem, lim - 1) (fun () -> extend sub lit1 rest hist alt (todo, prf) et) (ntodo, (fst sub, Res (lit1, path, lem)) :: prf) cla1
     | None -> extend sub lit1 rest hist alt (todo, prf) et)
   | [] -> alt ()
 
@@ -104,8 +104,8 @@ let leancop file =
 ;;
 
 
-let print_res (lit, path, lem, nlit, npath, nlem, contr) =
-  Format.print_string (Hashtbl.find no_contr contr); Format.print_string ", (";
+let print_res (lit, path, lem, nlit, npath, nlem) =
+  Format.print_string "(";
   pp_print_lit Format.std_formatter lit; Format.print_string "), (";
   pp_iter Format.std_formatter pp_print_lit "," path; Format.print_string "), (";
   pp_iter Format.std_formatter pp_print_lit "," lem; Format.print_string "), (";
@@ -114,9 +114,9 @@ let print_res (lit, path, lem, nlit, npath, nlem, contr) =
   pp_iter Format.std_formatter pp_print_lit "," nlem; Format.print_string ").\n"
 
 let rec res_of_proof acc = function
-  (s, Res (lit, path, lem, contr)) :: tl ->
+  (s, Res (lit, path, lem)) :: tl ->
    res_of_proof ((inst_lit s lit, List.map (inst_lit s) path, List.map (inst_lit s) lem,
-     lit, path, lem, contr) :: acc) tl
+     lit, path, lem) :: acc) tl
 | _ :: tl -> res_of_proof acc tl
 | [] -> acc
 
