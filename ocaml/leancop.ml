@@ -48,7 +48,7 @@ and reduce sub lit1 rest ((path,lem,lim) as hist) alt (todo, prf) neglit = funct
     | None -> reduce sub lit1 rest hist alt (todo, prf) neglit pt)
   | [] ->
       let hist = path, lem, lim in
-      let dbs = Database.db_entries sub neglit in
+      let dbs = Database.db_entries (fst neglit) in
       extend sub lit1 rest hist alt (todo, prf) dbs
 
 and extend sub lit1 rest ((path, lem, lim) as hist) alt (todo, prf) = function

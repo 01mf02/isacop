@@ -95,7 +95,8 @@ let empty_sub = [];;
 
 module Im = Map.Make(struct type t = int let compare = compare end);;
 
-let md5s s = Int64.to_int ((Obj.magic (Digest.to_hex (Digest.string s))) : int64);;
+(* TODO: make this more efficient! *)
+let md5s s = 0 (*Int64.to_int ((Obj.magic (Digest.to_hex (Digest.string s))) : int64);;*)
 
 let cnst_no, no_cnst = Hashtbl.create 100, Hashtbl.create 100;;
 
