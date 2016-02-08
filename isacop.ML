@@ -19,6 +19,7 @@ val unify_rename_subst : int -> term list -> term list -> environment -> lit lis
 val eqLit : environment -> lit -> lit -> bool
 val negateLit : lit -> lit
 val emptySub : environment
+val termVars : term -> variable list
 
 end
 
@@ -35,6 +36,13 @@ fun iter2 f (x::xs) (y::ys) = (f x y; iter2 f xs ys)
 fun all2 f (x::xs) (y::ys) = f x y andalso all2 f xs ys
   | all2 _ [] [] = true
   | all2 _ _ _ = raise Fail "list lengths differ"
+
+(* run function for every element and all other elements of the list *)
+fun iter_rest _ _ [] = ()
+  | iter_rest acc f (h :: t) = (f (h, List.revAppend (acc, t)); iter_rest (h :: acc) f t)
+
+fun elem x (h::t) = x = h orelse elem x t
+  | elem x [] = false
 
 end
 
@@ -121,20 +129,27 @@ val emptySub = []
 
 fun negateLit (i, l) = (~i, l)
 
+fun termVars (V x) = [x]
+  | termVars (A (_, args)) = List.concat (List.map termVars args)
+
 end
 
 
 structure Database =
 struct
 
-(* (lit-arguments, rest-clause, vars, contrapositive hash) *)
-type contrapositive = (Term.term list * Term.lit list * int * int)
+(* (lit-arguments, rest-clause, vars) *)
+type contrapositive = (Term.term list * Term.lit list * int)
 
-structure PTable = Table(type key = Term.predicate val ord = Term.predicate_ord)
+
+
+(* structure PTable = Table(type key = Term.predicate val ord = Term.predicate_ord) *)
 
 (* for every predicate, store list of possible contrapositives *)
-val db : (contrapositive list) PTable.table = PTable.empty
+val db : (contrapositive list) Array.array = Array.array (10000, [])
 
+fun int_of_nat n = if n mod 2 = 0 then n div 2 else ~(n+1) div 2
+fun nat_of_int i = if i >= 0 then 2*i else ~(2*i + 1)
 
 
 (* TODO! *)
@@ -142,7 +157,40 @@ val hash = 0
 val hash_lit = (~hash, [])
 
 
-fun db_entries _ _ = []
+fun iter_rest_nohash acc f =
+  List.iter_rest acc (fn (h, rest) => f (h, List.filter (fn l => l <> hash_lit) rest))
+
+fun litVars (_, ts) = List.concat (List.map Term.termVars ts)
+fun clauseVars cl = List.concat (List.map litVars cl)
+
+fun clauseMaxVar cl = 1 + List.foldl Int.max (~1) (clauseVars cl)
+
+val goal_directed = true
+
+
+fun clause_prefix_hash cl =
+  if not goal_directed andalso
+     List.all (fn (p, _) => p < 0) cl andalso
+     not (List.elem hash_lit cl)
+  then hash_lit :: cl else cl
+
+
+local
+  fun contrapositive2db max_var ((p,tl), rest) =
+    let val n = nat_of_int p
+    in  Array.update (db, n, (tl, rest, max_var) :: Array.sub (db, n))
+    end
+
+  fun cl2db cl =
+    let val max_var = clauseMaxVar cl
+        val cl = clause_prefix_hash cl
+    in  iter_rest_nohash [] (contrapositive2db max_var) cl
+    end
+in
+  val axioms2db = List.app cl2db
+end
+
+fun db_entries neglit = Array.sub (db, nat_of_int neglit)
 end
 
 structure IsaCoP =
@@ -162,7 +210,7 @@ fun eq (sub, _) l1 l2 = Term.eqLit sub l1 l2;;
 
 fun unify (sub, off) l1 l2 = SOME (Term.unifyLit sub l1 l2, off) handle Term.Unify => NONE
 
-fun unify_rename (s, off) args1 (args2, rest, vars, _) =
+fun unify_rename (s, off) args1 (args2, rest, vars) =
   let val xx = if vars = 0 then ((Term.unifyList s args1 args2, off), rest)
                else let val (s, rest) = Term.unify_rename_subst off args1 args2 s rest
                     in  ((s, off + vars), rest)
@@ -174,7 +222,7 @@ fun unify_rename (s, off) args1 (args2, rest, vars, _) =
 datatype proof =
     Lem of Term.lit
   | Pat of Term.lit
-  | Res of (Term.lit * Term.lit list * Term.lit list * int)
+  | Res of (Term.lit * Term.lit list * Term.lit list)
 exception Solved of (int list * proof) list
 
 
@@ -194,24 +242,24 @@ and reduce sub lit1 rest hist alt (todo, prf) neglit = fn
     plit :: pt => (case unify sub neglit plit of
         SOME sub2 =>
           let val nprf = (fst sub, Pat lit1) :: prf
-              val cont = (fn () => reduce sub lit1 rest hist alt (todo, prf) neglit pt)
+              fun cont () = reduce sub lit1 rest hist alt (todo, prf) neglit pt
               val nalt = if cut2 then alt else cont
           in prove sub2 hist nalt (todo, nprf) rest
           end
       | NONE => reduce sub lit1 rest hist alt (todo, prf) neglit pt)
   | [] =>
-      let val dbs = Database.db_entries sub neglit
+      let val dbs = Database.db_entries (fst neglit)
       in  extend sub lit1 rest hist alt (todo, prf) dbs
       end
 and extend sub lit1 rest (hist as (path, lem, lim)) alt (todo, prf) = fn
-    ((eh as (_,_,vars,hsh)) :: et) =>
+    ((eh as (_,_,vars)) :: et) =>
     (case (if lim <= 0 andalso vars > 0 then NONE else unify_rename sub (snd lit1) eh) of
       SOME (sub2, cla1) =>
       let val nhis1 = (path, lit1 :: lem, lim)
-          val ntodo = fn (sub, nalt, prf) => prove sub nhis1 (if cut3 then alt else nalt) (todo, prf) rest
+          fun ntodo (sub, nalt, prf) = prove sub nhis1 (if cut3 then alt else nalt) (todo, prf) rest
           val nhist = (lit1 :: path, lem, lim - 1)
-          val nprf  = (fst sub, Res (lit1, path, lem, hsh)) :: prf
-          val nalt  = (fn () => extend sub lit1 rest hist alt (todo, prf) et)
+          val nprf  = (fst sub, Res (lit1, path, lem)) :: prf
+          fun nalt () = extend sub lit1 rest hist alt (todo, prf) et
       in  infer := !infer + 1;
           prove sub2 nhist nalt (ntodo, nprf) cla1
       end
