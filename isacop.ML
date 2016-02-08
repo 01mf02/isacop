@@ -23,26 +23,37 @@ val termVars : term -> variable list
 
 end
 
+signature LIST =
+sig
 
-structure List =
+include LIST
+
+val app2 : ('a -> 'b -> 'c) -> 'a list -> 'b list -> unit
+val all2 : ('a -> 'b -> bool) -> 'a list -> 'b list -> bool
+val elem : ''a -> ''a list -> bool
+val app_rest : 'a list -> ('a * 'a list -> 'b) -> 'a list -> unit
+
+end
+
+structure List : LIST =
 struct
 
 open List
 
-fun iter2 f (x::xs) (y::ys) = (f x y; iter2 f xs ys)
-  | iter2 _ [] [] = ()
-  | iter2 _ _ _ = raise Fail "list lengths differ"
+fun app2 f (x::xs) (y::ys) = (f x y; app2 f xs ys)
+  | app2 _ [] [] = ()
+  | app2 _ _ _ = raise Fail "list lengths differ"
 
 fun all2 f (x::xs) (y::ys) = f x y andalso all2 f xs ys
   | all2 _ [] [] = true
   | all2 _ _ _ = raise Fail "list lengths differ"
 
 (* run function for every element and all other elements of the list *)
-fun iter_rest _ _ [] = ()
-  | iter_rest acc f (h :: t) = (f (h, List.revAppend (acc, t)); iter_rest (h :: acc) f t)
+fun app_rest _ _ [] = ()
+  | app_rest acc f (h :: t) = (f (h, List.revAppend (acc, t)); app_rest (h :: acc) f t)
 
 fun elem x (h::t) = x = h orelse elem x t
-  | elem x [] = false
+  | elem _ [] = false
 
 end
 
@@ -83,11 +94,11 @@ fun restore_subst env =
 
 
 
-fun unify (A(f, fa)) (A(g, ga)) = if f <> g then raise Unify else List.iter2 unify fa ga
+fun unify (A(f, fa)) (A(g, ga)) = if f <> g then raise Unify else List.app2 unify fa ga
   | unify (V(x)) tm = mapSubst (addSubst x tm) (unify tm) x
   | unify tm (V(x)) = unify (V(x)) tm
 
-fun unifyList env l1 l2 = (restore_subst env; List.iter2 unify l1 l2; !sh)
+fun unifyList env l1 l2 = (restore_subst env; List.app2 unify l1 l2; !sh)
 
 fun unifyLit env (h1, l1) (h2, l2) =
   if h1 <> h2 then raise Unify else unifyList env l1 l2
@@ -98,7 +109,7 @@ local
 in
   (* Unification with renaming of the second argument *)
   fun unify_rename off t1 t2 = case (t1, t2) of
-      (A(f,fa), A(g,ga)) => if f <> g then raise Unify else List.iter2 (unify_rename off) fa ga
+      (A(f,fa), A(g,ga)) => if f <> g then raise Unify else List.app2 (unify_rename off) fa ga
     | (_, V x) =>
         let val x = x + off
         in  mapSubst (addSubst x t1) (unify_rename 0 t1) x
@@ -109,7 +120,7 @@ in
 
   fun unify_rename_subst off l1 l2 env list =
     (restore_subst env;
-    List.iter2 (unify_rename off) l1 l2;
+    List.app2 (unify_rename off) l1 l2;
     (!sh, List.map (fn (p,l) => (p,List.map (bump_small off) l)) list))
 end
 
@@ -188,7 +199,7 @@ local
   fun cl2db cl =
     let val max_var = clauseMaxVar cl
         val cl = clause_prefix_hash cl
-    in  List.iter_rest [] (contrapositive2db max_var) cl
+    in  List.app_rest [] (contrapositive2db max_var) cl
     end
 in
   val axioms2db = List.app cl2db
@@ -230,7 +241,7 @@ datatype proof =
 exception Solved of (int list * proof) list
 
 
-fun prove sub (hist as (path, lem, lim)) alt (todo, prf) = fn
+fun prove sub (hist as (path, lem, _)) alt (todo, prf) = fn
     [] => todo (sub, alt, prf)
   | (cl as lit1 :: rest) =>
      let val cont = (fn () => reduce sub lit1 rest hist alt (todo, prf) (Term.negateLit lit1) path)
