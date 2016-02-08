@@ -134,31 +134,34 @@ fun termVars (V x) = [x]
 
 end
 
+signature DATABASE =
+sig
 
-structure Database =
+type contrapositive = (Term.term list * Term.lit list * int)
+val db_entries : int -> contrapositive list
+val hashek : Term.predicate
+
+end
+
+structure Database : DATABASE =
 struct
 
 (* (lit-arguments, rest-clause, vars) *)
 type contrapositive = (Term.term list * Term.lit list * int)
-
-
 
 (* structure PTable = Table(type key = Term.predicate val ord = Term.predicate_ord) *)
 
 (* for every predicate, store list of possible contrapositives *)
 val db : (contrapositive list) Array.array = Array.array (10000, [])
 
-fun int_of_nat n = if n mod 2 = 0 then n div 2 else ~(n+1) div 2
+(*fun int_of_nat n = if n mod 2 = 0 then n div 2 else ~(n+1) div 2*)
 fun nat_of_int i = if i >= 0 then 2*i else ~(2*i + 1)
 
 
 (* TODO! *)
-val hash = 0
-val hash_lit = (~hash, [])
+val hashek = 0
+val hashek_lit = (~hashek, [])
 
-
-fun iter_rest_nohash acc f =
-  List.iter_rest acc (fn (h, rest) => f (h, List.filter (fn l => l <> hash_lit) rest))
 
 fun litVars (_, ts) = List.concat (List.map Term.termVars ts)
 fun clauseVars cl = List.concat (List.map litVars cl)
@@ -171,20 +174,21 @@ val goal_directed = true
 fun clause_prefix_hash cl =
   if not goal_directed andalso
      List.all (fn (p, _) => p < 0) cl andalso
-     not (List.elem hash_lit cl)
-  then hash_lit :: cl else cl
+     not (List.elem hashek_lit cl)
+  then hashek_lit :: cl else cl
 
 
 local
   fun contrapositive2db max_var ((p,tl), rest) =
     let val n = nat_of_int p
-    in  Array.update (db, n, (tl, rest, max_var) :: Array.sub (db, n))
+        val nohashek = List.filter (fn l => l <> hashek_lit) rest
+    in  Array.update (db, n, (tl, nohashek, max_var) :: Array.sub (db, n))
     end
 
   fun cl2db cl =
     let val max_var = clauseMaxVar cl
         val cl = clause_prefix_hash cl
-    in  iter_rest_nohash [] (contrapositive2db max_var) cl
+    in  List.iter_rest [] (contrapositive2db max_var) cl
     end
 in
   val axioms2db = List.app cl2db
@@ -271,7 +275,7 @@ fun prove2 lim = prove
   ([], [], lim)
   (fn () => ())
   ((fn (_,_,prf) => raise (Solved prf)), [])
-  [(Database.hash,[])]
+  [(Database.hashek,[])]
 
 end
 
