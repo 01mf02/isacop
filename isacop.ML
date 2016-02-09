@@ -283,12 +283,30 @@ fun prove2 lim = prove
   [(Database.hashek,[])]
 
 
-fun isacop_tac ctxt lim i st =
+val trace = Attrib.setup_config_bool @{binding isacop_trace} (K true);
+
+fun cond_tracing true msg = tracing (msg ())
+  | cond_tracing false _ = ();
+
+fun TRACE ctxt rl tac i st =
+  (cond_tracing (Config.get ctxt trace) (fn () => Display.string_of_thm ctxt rl); tac i st);
+
+(* Negate goal and move it to first position. *)
+fun negOfGoal_tac ctxt i =
+  resolve_tac ctxt @{thms ccontr} i THEN rotate_tac ~1 i
+
+fun raw_isacop ctxt i =
+  print_tac ctxt "Initial proof state" THEN
+  negOfGoal_tac ctxt i THEN
+  print_tac ctxt "After negation:" THEN
+  no_tac
+
+fun isacop_tac (ctxt:Proof.context) lim i st =
   let
     val start = Timing.start ();
     val lim = Config.get ctxt depth_limit;
   in
-    SELECT_GOAL (Object_Logic.atomize_prems_tac ctxt 1 THEN no_tac) i st
+    SELECT_GOAL (Object_Logic.atomize_prems_tac ctxt 1 THEN raw_isacop ctxt i) i st
   end;
 
 val _ =

@@ -66,5 +66,17 @@ ML_file "../isacop.ML"
 
 definition "hashek == True"
 
-lemma "\<forall>x. P(x) \<or> \<not>P(x)"
-by (isacop)
+lemma hashek_prop:
+  assumes "a \<and> hashek"
+  assumes "b \<and> hashek"
+  shows "a \<and> b"
+using assms unfolding hashek_def by simp
+
+ML {*
+
+val x = 2;
+
+*}
+
+lemma "Q \<Longrightarrow> R \<Longrightarrow> \<forall>x. P(x) \<or> \<not>P(x)"
+by (isacop 1)
