@@ -28,7 +28,6 @@ sig
 
 include LIST
 
-val elem : ''a -> ''a list -> bool
 val app_rest : 'a list -> ('a * 'a list -> 'b) -> 'a list -> unit
 
 end
@@ -41,9 +40,6 @@ open List
 (* run function for every element and all other elements of the list *)
 fun app_rest _ _ [] = ()
   | app_rest acc f (h :: t) = (f (h, List.revAppend (acc, t)); app_rest (h :: acc) f t)
-
-fun elem x (h::t) = x = h orelse elem x t
-  | elem _ [] = false
 
 end
 
@@ -173,7 +169,7 @@ val goal_directed = true
 fun clause_prefix_hash cl =
   if not goal_directed andalso
      List.all (fn (p, _) => p < 0) cl andalso
-     not (List.elem hashek_lit cl)
+     not (member (op =) cl hashek_lit)
   then hashek_lit :: cl else cl
 
 

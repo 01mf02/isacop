@@ -64,5 +64,7 @@ qed
 
 ML_file "../isacop.ML"
 
+definition "hashek == True"
+
 lemma "\<forall>x. P(x) \<or> \<not>P(x)"
-by (isacop 1)
+by (isacop)
