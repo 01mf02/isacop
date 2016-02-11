@@ -28,7 +28,7 @@ sig
 
 include LIST
 
-val app_rest : 'a list -> ('a * 'a list -> 'b) -> 'a list -> unit
+val app_rest : 'a list -> ('a * 'a list -> unit) -> 'a list -> unit
 
 end
 

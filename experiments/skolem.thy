@@ -1,4 +1,5 @@
-theory skolem imports FOL "~~/src/FOL/ex/Nat" begin
+theory skolem imports "~~/src/FOL/FOL"
+begin
 
 lemma
   assumes c:"\<forall>x::nat. P(x)"
@@ -77,6 +78,85 @@ ML {*
 val x = 2;
 
 *}
+
+print_simpset
+
+lemma imp_clause: "(a \<longrightarrow> b) \<longleftrightarrow> \<not>a \<or> b"
+by blast
+
+lemma iff_clause: "(a \<longleftrightarrow> b) \<longleftrightarrow> ((a \<longrightarrow> b) \<and> (b \<longrightarrow> a))"
+by blast
+
+lemmas precnf_simps = imp_clause iff_clause
+
+(*lemma "a \<and> (b \<or> c) \<longleftrightarrow> (a \<and> b) \<or> (a \<and> c)"
+by blast
+*)
+
+lemma disj_conj: "a \<or> (b \<and> c) \<longleftrightarrow> (a \<or> b) \<and> (a \<or> c)"
+by blast
+
+lemma conj_disj: "(b \<and> c) \<or> a \<longleftrightarrow> (a \<or> b) \<and> (a \<or> c)"
+by blast
+
+lemmas cnf_simps = disj_conj conj_disj
+
+
+lemma conj_ex: "a \<and> (\<exists>x. P(x)) \<longleftrightarrow> (\<exists>x. P(x) \<and> a)"
+by auto
+
+lemma ex_conj: "(\<exists>x. P(x)) \<and> a \<longleftrightarrow> (\<exists>x. P(x) \<and> a)"
+by simp
+
+lemma disj_ex: "a \<or> (\<exists>x. P(x)) \<longleftrightarrow> (\<exists>x. P(x) \<or> a)"
+by auto
+
+lemma ex_disj: "(\<exists>x. P(x)) \<or> a \<longleftrightarrow> (\<exists>x. P(x) \<or> a)"
+by simp
+
+
+lemma conj_all: "a \<and> (\<forall>x. P(x)) \<longleftrightarrow> (\<forall>x. P(x) \<and> a)"
+by auto
+
+lemma all_conj: "(\<forall>x. P(x)) \<and> a \<longleftrightarrow> (\<forall>x. P(x) \<and> a)"
+by simp
+
+lemma disj_all: "a \<or> (\<forall>x. P(x)) \<longleftrightarrow> (\<forall>x. P(x) \<or> a)"
+by auto
+
+lemma all_disj: "(\<forall>x. P(x)) \<or> a \<longleftrightarrow> (\<forall>x. P(x) \<or> a)"
+by simp
+
+
+lemmas prenex_simps =
+  conj_ex   ex_conj disj_ex   ex_disj
+  conj_all all_conj disj_all all_disj
+
+
+lemma "a \<and> (\<exists>x. P(x) \<or> (\<forall>y. Q(y)))"
+apply (simp only: prenex_simps)
+oops
+
+lemma "((\<forall>x. P(x,y,z)) \<and> Q) \<longleftrightarrow> (\<forall>x. (P(x,y,z) \<and> Q))"
+using [[simp_trace]] apply simp
+done
+
+thm FOL.IFOL_simps
+thm FOL.int_all_simps
+thm FOL.cla_simps
+
+lemma "\<And>P. (\<forall>x. P(x)) \<and> Q"
+apply simp
+oops
+
+lemma "\<forall>x. ((P(x) \<longleftrightarrow> a \<and> b) \<or> ((\<forall>z. R(z,s)) \<or> (\<exists>y. Q(y, x)) \<and> r)) \<or> z \<Longrightarrow> a \<or> (b \<and> c) \<Longrightarrow> False"
+apply (simp)
+apply (simp only: precnf_simps)
+apply (simp only: cnf_simps)
+apply (simp only: conj_simps disj_simps)
+apply (simp only: prenex_simps)
+apply (simp only: conj_simps disj_simps)
+
 
 lemma "Q \<Longrightarrow> R \<Longrightarrow> \<forall>x. P(x) \<or> \<not>P(x)"
 by (isacop 1)
