@@ -28,7 +28,7 @@ sig
 
 include LIST
 
-val app_rest : 'a list -> ('a * 'a list -> unit) -> 'a list -> unit
+val app_rest : 'a list -> ('a * 'a list -> 'b) -> 'a list -> unit
 
 end
 
@@ -44,7 +44,7 @@ fun app_rest _ _ [] = ()
 end
 
 
-structure Term : TERM =
+structure FTerm : FTERM =
 struct
 
 type variable = int
@@ -132,9 +132,9 @@ end
 signature DATABASE =
 sig
 
-type contrapositive = (Term.term list * Term.lit list * int)
+type contrapositive = (FTerm.term list * FTerm.lit list * int)
 val db_entries : int -> contrapositive list
-val hashek : Term.predicate
+val hashek : FTerm.predicate
 
 end
 
@@ -142,7 +142,7 @@ structure Database : DATABASE =
 struct
 
 (* (lit-arguments, rest-clause, vars) *)
-type contrapositive = (Term.term list * Term.lit list * int)
+type contrapositive = (FTerm.term list * FTerm.lit list * int)
 
 (* structure PTable = Table(type key = Term.predicate val ord = Term.predicate_ord) *)
 
@@ -158,7 +158,7 @@ val hashek = 0
 val hashek_lit = (~hashek, [])
 
 
-fun litVars (_, ts) = List.concat (List.map Term.termVars ts)
+fun litVars (_, ts) = List.concat (List.map FTerm.termVars ts)
 fun clauseVars cl = List.concat (List.map litVars cl)
 
 fun clauseMaxVar cl = 1 + List.foldl Int.max (~1) (clauseVars cl)
@@ -215,37 +215,37 @@ val depth = Unsynchronized.ref 0
 val depthinfer = Unsynchronized.ref 0
 
 
-fun eq (sub, _) l1 l2 = Term.eqLit sub l1 l2;;
+fun eq (sub, _) l1 l2 = FTerm.eqLit sub l1 l2;;
 
-fun unify (sub, off) l1 l2 = SOME (Term.unifyLit sub l1 l2, off) handle Term.Unify => NONE
+fun unify (sub, off) l1 l2 = SOME (FTerm.unifyLit sub l1 l2, off) handle FTerm.Unify => NONE
 
 fun unify_rename (s, off) args1 (args2, rest, vars) =
-  let val xx = if vars = 0 then ((Term.unifyList s args1 args2, off), rest)
-               else let val (s, rest) = Term.unify_rename_subst off args1 args2 s rest
+  let val xx = if vars = 0 then ((FTerm.unifyList s args1 args2, off), rest)
+               else let val (s, rest) = FTerm.unify_rename_subst off args1 args2 s rest
                     in  ((s, off + vars), rest)
                     end
   in SOME xx
   end
-  handle Term.Unify => NONE
+  handle FTerm.Unify => NONE
 
 datatype proof =
-    Lem of Term.lit
-  | Pat of Term.lit
-  | Res of (Term.lit * Term.lit list * Term.lit list)
+    Lem of FTerm.lit
+  | Pat of FTerm.lit
+  | Res of (FTerm.lit * FTerm.lit list * FTerm.lit list)
 exception Solved of (int list * proof) list
 
 
 fun prove sub (hist as (path, lem, _)) alt (todo, prf) = fn
     [] => todo (sub, alt, prf)
   | (cl as lit1 :: rest) =>
-     let val cont = (fn () => reduce sub lit1 rest hist alt (todo, prf) (Term.negateLit lit1) path)
+     let val cont = (fn () => reduce sub lit1 rest hist alt (todo, prf) (FTerm.negateLit lit1) path)
          val nalt = if cut1 then alt else cont
      in  if List.exists (fn x => List.exists (eq sub x) path) cl
            then alt ()
          else if List.exists (eq sub lit1) lem
            then prove sub hist nalt (todo, (fst sub, Lem lit1) :: prf) rest
          else
-           reduce sub lit1 rest hist alt (todo, prf) (Term.negateLit lit1) path
+           reduce sub lit1 rest hist alt (todo, prf) (FTerm.negateLit lit1) path
      end
 and reduce sub lit1 rest hist alt (todo, prf) neglit = fn
     plit :: pt => (case unify sub neglit plit of
@@ -276,7 +276,7 @@ and extend sub lit1 rest (hist as (path, lem, lim)) alt (todo, prf) = fn
   | [] => alt ()
 
 fun prove2 lim = prove
-  (Term.emptySub, 0)
+  (FTerm.emptySub, 0)
   ([], [], lim)
   (fn () => ())
   ((fn (_,_,prf) => raise (Solved prf)), [])
@@ -292,6 +292,12 @@ fun TRACE ctxt rl tac i st =
   (cond_tracing (Config.get ctxt trace) (fn () => Display.string_of_thm ctxt rl); tac i st);
 
 (* Negate goal and move it to first position. *)
+(* P1 ==> ... Pn ==> G
+   ------------------------------
+   P1 ==> ... Pn ==> False ==> ~G
+   ------------------------------
+   ~G ==> P1 ==> ... Pn ==> False
+*)
 fun negOfGoal_tac ctxt i =
   resolve_tac ctxt @{thms ccontr} i THEN rotate_tac ~1 i
 
