@@ -192,6 +192,36 @@ end
 fun db_entries neglit = Array.sub (db, nat_of_int neglit)
 end
 
+
+(*signature INTBIMAP =
+sig
+
+type 'a bimap
+
+val insert : ('a bimap * 'a) -> ('a bimap * int)
+val forward : ('a bimap * 'a) -> int
+val backward : ('a bimap * int) -> 'a
+
+end*)
+
+functor IntBimap (Key : KEY) =
+struct
+
+structure Tab = Table (Key)
+
+type bimap = { forth : int Tab.table, back : Key.key Array.array, maxIndex : int }
+
+fun insert ({back = b, maxIndex = m, forth = f}, x) =
+  (Array.update (b, m, x); ({forth = f, back = b, maxIndex = m + 1}, m))
+
+fun forward ({forth = f, ...}, x) = Tab.lookup f x
+
+(*fun backward ({back, ...}, i) = Array.sub (back, i)*)
+
+end
+
+
+
 signature ISACOP =
 sig
 
