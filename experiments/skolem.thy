@@ -63,8 +63,6 @@ proof (rule ccontr)
   qed
 qed
 
-ML_file "../isacop.ML"
-
 definition "hashek == True"
 
 lemma hashek_prop:
@@ -89,9 +87,6 @@ by blast
 
 lemmas precnf_simps = imp_clause iff_clause
 
-(*lemma "a \<and> (b \<or> c) \<longleftrightarrow> (a \<and> b) \<or> (a \<and> c)"
-by blast
-*)
 
 lemma disj_conj: "a \<or> (b \<and> c) \<longleftrightarrow> (a \<or> b) \<and> (a \<or> c)"
 by blast
@@ -127,15 +122,9 @@ by auto
 lemma all_disj: "(\<forall>x. P(x)) \<or> a \<longleftrightarrow> (\<forall>x. P(x) \<or> a)"
 by simp
 
+lemmas prenex_ex  = conj_ex   ex_conj disj_ex   ex_disj
+lemmas prenex_all = conj_all all_conj disj_all all_disj
 
-lemmas prenex_simps =
-  conj_ex   ex_conj disj_ex   ex_disj
-  conj_all all_conj disj_all all_disj
-
-
-lemma "a \<and> (\<exists>x. P(x) \<or> (\<forall>y. Q(y)))"
-apply (simp only: prenex_simps)
-oops
 
 lemma "((\<forall>x. P(x,y,z)) \<and> Q) \<longleftrightarrow> (\<forall>x. (P(x,y,z) \<and> Q))"
 using [[simp_trace]] apply simp
@@ -145,18 +134,34 @@ thm FOL.IFOL_simps
 thm FOL.int_all_simps
 thm FOL.cla_simps
 
-lemma "\<And>P. (\<forall>x. P(x)) \<and> Q"
-apply simp
-oops
+thm refl [THEN P_iff_T]
+thm conj_simps
+thm disj_simps
+thm not_simps
+thm imp_simps
+thm iff_simps
+thm quant_simps
 
-lemma "\<forall>x. ((P(x) \<longleftrightarrow> a \<and> b) \<or> ((\<forall>z. R(z,s)) \<or> (\<exists>y. Q(y, x)) \<and> r)) \<or> z \<Longrightarrow> a \<or> (b \<and> c) \<Longrightarrow> False"
-apply (simp)
+
+lemma "\<forall>x. ((P(x) \<longleftrightarrow> a \<and> b) \<or> ((\<forall>z. R(z,s)) \<or> (\<exists>y. \<forall>w. \<exists>v. Q(y, w, v)) \<and> r)) \<or> z \<Longrightarrow> a \<or> (b \<and> c) \<Longrightarrow> True \<Longrightarrow> False"
+apply (simp only: meta_simps IFOL_simps cla_simps)
+apply (simp only: prenex_ex prenex_all)
 apply (simp only: precnf_simps)
 apply (simp only: cnf_simps)
 apply (simp only: conj_simps disj_simps)
-apply (simp only: prenex_simps)
-apply (simp only: conj_simps disj_simps)
+oops
 
+ML_file "../isacop.ML"
+
+lemma "True \<Longrightarrow> False"
+apply (tactic {* TRY (asm_full_simp_tac @{context} 1) *})
+oops
+
+
+lemma
+  "\<forall>x. ((P(x) \<longleftrightarrow> a \<and> b) \<or> ((\<forall>z. R(z,s)) \<or> (\<exists>y. \<forall>w. \<exists>v. Q(y, w, v)) \<and> r)) \<or> z \<Longrightarrow> a \<or> (b \<and> c) \<Longrightarrow> True \<Longrightarrow> False"
+  "a \<or> \<not>a"
+by (isacop 1)
 
 lemma "Q \<Longrightarrow> R \<Longrightarrow> \<forall>x. P(x) \<or> \<not>P(x)"
 by (isacop 1)

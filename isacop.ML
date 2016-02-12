@@ -1,6 +1,6 @@
 
 
-signature TERM =
+signature FTERM =
 sig
 
 type variable
@@ -298,21 +298,33 @@ fun TRACE ctxt rl tac i st =
    ------------------------------
    ~G ==> P1 ==> ... Pn ==> False
 *)
-fun negOfGoal_tac ctxt i =
-  resolve_tac ctxt @{thms ccontr} i THEN rotate_tac ~1 i
+fun negOfGoal_tac ctxt =
+  resolve_tac ctxt @{thms ccontr} THEN' rotate_tac ~1
 
-fun raw_isacop ctxt i =
-  print_tac ctxt "Initial proof state" THEN
-  negOfGoal_tac ctxt i THEN
-  print_tac ctxt "After negation:" THEN
-  no_tac
+fun simp_tac_only ctxt ths =
+  put_simpset FOL_basic_ss ctxt addsimps ths
+  |> TRY oo asm_full_simp_tac
 
-fun isacop_tac (ctxt:Proof.context) lim i st =
+fun raw_isacop ctxt =
+  K (print_tac ctxt "Initial proof state") THEN'
+  negOfGoal_tac ctxt THEN'
+  K (print_tac ctxt "After negation") THEN'
+  simp_tac_only ctxt @{thms meta_simps IFOL_simps cla_simps} THEN'
+  K (print_tac ctxt "After simplification") THEN'
+  simp_tac_only ctxt @{thms prenex_ex prenex_all} THEN'
+  K (print_tac ctxt "After prenexing") THEN'
+  simp_tac_only ctxt @{thms precnf_simps} THEN'
+  simp_tac_only ctxt @{thms cnf_simps} THEN'
+  simp_tac_only ctxt @{thms conj_simps disj_simps} THEN'
+  K (print_tac ctxt "After clausification") THEN'
+  K all_tac
+
+fun isacop_tac (ctxt:Proof.context) lim =
   let
     val start = Timing.start ();
     val lim = Config.get ctxt depth_limit;
   in
-    SELECT_GOAL (Object_Logic.atomize_prems_tac ctxt 1 THEN raw_isacop ctxt i) i st
+    Object_Logic.atomize_prems_tac ctxt THEN' raw_isacop ctxt
   end;
 
 val _ =
