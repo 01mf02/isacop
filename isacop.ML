@@ -193,30 +193,40 @@ fun db_entries neglit = Array.sub (db, nat_of_int neglit)
 end
 
 
-(*signature INTBIMAP =
+signature BIMAP =
 sig
 
-type 'a bimap
+type left
+type right
+type bimap
 
-val insert : ('a bimap * 'a) -> ('a bimap * int)
-val forward : ('a bimap * 'a) -> int
-val backward : ('a bimap * int) -> 'a
+val  forward : (bimap * left) -> right option
+val backward : (bimap * right) -> left option
 
-end*)
+end
 
-functor IntBimap (Key : KEY) =
+functor IntBimap (Key : KEY) : BIMAP =
 struct
 
 structure Tab = Table (Key)
 
-type bimap = { forth : int Tab.table, back : Key.key Array.array, maxIndex : int }
+type left = Key.key
+type right = int
+
+type bimap = {
+  forth : int Tab.table
+, back : Key.key option Array.array
+, maxIndex : int
+}
+
+fun empty size = {forth = Tab.empty, back = Array.array (size, NONE), maxIndex = 0}
 
 fun insert ({back = b, maxIndex = m, forth = f}, x) =
-  (Array.update (b, m, x); ({forth = f, back = b, maxIndex = m + 1}, m))
+  (Array.update (b, m, SOME x); ({forth = f, back = b, maxIndex = m + 1}, m))
 
-fun forward ({forth = f, ...}, x) = Tab.lookup f x
+fun forward ({forth, ...}, x) = Tab.lookup forth x
 
-(*fun backward ({back, ...}, i) = Array.sub (back, i)*)
+fun backward ({back, ...}, i) = Array.sub (back, i)
 
 end
 
