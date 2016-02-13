@@ -228,6 +228,8 @@ fun forward ({forth, ...}, x) = Tab.lookup forth x
 
 fun backward ({back, ...}, i) = Array.sub (back, i)
 
+fun insertIf (bm, x) = case forward (bm, x) of SOME i => (bm, i) | NONE => insert (bm, x)
+
 end
 
 
@@ -345,7 +347,14 @@ fun simp_tac_only ctxt ths =
   put_simpset FOL_basic_ss ctxt addsimps ths
   |> TRY oo asm_full_simp_tac
 
-structure StringIntBimap = IntBimap (type key = string val ord = string_ord)
+structure Symmap = IntBimap (type key = string val ord = string_ord)
+
+
+fun conv_prop tab t =
+  let val (P, args) = strip_comb t
+      val (tab', P') = Symmap.insertIf (tab, P)
+  in P
+  end
 
 fun stripq all ex (Const (@{const_name "All"}, _) $ Abs (x, T, t)) = stripq ((x,T)::all) ex t
   | stripq all ex (Const (@{const_name "Ex"}, _) $ Abs (x, T, t)) = stripq all ((x, T, all)::ex) t
