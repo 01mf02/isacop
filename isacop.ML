@@ -345,6 +345,25 @@ fun simp_tac_only ctxt ths =
   put_simpset FOL_basic_ss ctxt addsimps ths
   |> TRY oo asm_full_simp_tac
 
+structure StringIntBimap = IntBimap (type key = string val ord = string_ord)
+
+fun stripq all ex (Const (@{const_name "All"}, _) $ Abs (x, T, t)) = stripq ((x,T)::all) ex t
+  | stripq all ex (Const (@{const_name "Ex"}, _) $ Abs (x, T, t)) = stripq all ((x, T, all)::ex) t
+  | stripq all ex t = (all, ex, t)
+
+fun fold_clauses f acc (@{const conj} $ t $ u) = fold_clauses f (f acc t) u
+  | fold_clauses f acc t = f acc t
+
+fun fold_clause f acc (@{const disj} $ t $ u) = fold_clause f (f acc t) u
+  | fold_clause f acc t = f acc t
+
+fun strip_trueprop (Const (@{const_name "Trueprop"}, _) $ t) = t
+  | strip_trueprop t = t
+
+fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cterm, ...}) =
+  (map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks;
+  all_tac)
+
 fun raw_isacop ctxt =
   K (print_tac ctxt "Initial proof state") THEN'
   negOfGoal_tac ctxt THEN'
@@ -357,6 +376,7 @@ fun raw_isacop ctxt =
   simp_tac_only ctxt @{thms cnf_simps} THEN'
   simp_tac_only ctxt @{thms conj_simps disj_simps} THEN'
   K (print_tac ctxt "After clausification") THEN'
+  Subgoal.FOCUS isacop_focus ctxt THEN'
   K all_tac
 
 fun isacop_tac (ctxt:Proof.context) lim =
