@@ -229,7 +229,7 @@ fun backward ({back, ...} : bimap, i) = Array.sub (back, i)
 
 local
   fun insertNew ({back = b, maxIndex = m, forth = f}, x) =
-    (Array.update (b, m, SOME x); ({forth = f, back = b, maxIndex = m + 1}, m))
+    (Array.update (b, m, SOME x); ({forth = Tab.update (x,m) f, back = b, maxIndex = m + 1}, m))
 in
   fun insert (bm, x) = case forward (bm, x) of SOME i => (bm, i) | NONE => insertNew (bm, x)
 end
