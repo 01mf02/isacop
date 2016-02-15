@@ -219,7 +219,7 @@ type bimap = {
 , maxIndex : int
 }
 
-fun empty size = {forth = Tab.empty, back = Array.array (size, NONE), maxIndex = 0}
+fun empty size = {forth = Tab.empty, back = Array.array (size, NONE), maxIndex = 1}
 
 fun forward ({forth, ...}, x) = Tab.lookup forth x
 
@@ -346,6 +346,7 @@ fun TRACE ctxt rl tac i st =
    ------------------------------
    ~G ==> P1 ==> ... Pn ==> False
 *)
+
 fun negOfGoal_tac ctxt =
   resolve_tac ctxt @{thms ccontr} THEN' rotate_tac ~1
 
@@ -392,12 +393,6 @@ fun fold_clause f acc (@{const disj} $ t $ u) = fold_clause f (f (t, acc)) u
 fun strip_trueprop (Const (@{const_name "Trueprop"}, _) $ t) = t
   | strip_trueprop t = t
 
-(*fun foldl1 f (x::xs) = List.foldl f x xs
-
-val term_of_clauses =
-  List.foldl (fn (cl, acc) => FOLogic.mk_conj (
-  foldl1 (fn (t , acc) => FOLogic.mk_disj (t, acc)) cl, acc))*)
-
 fun pretty_term (FTerm.V v) = Pretty.str ("v" ^ Int.toString v)
   | pretty_term (FTerm.A (f, [])) = Pretty.str (Int.toString f)
   | pretty_term (FTerm.A (f, args)) = Pretty.block
@@ -420,16 +415,18 @@ fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cte
   let val _ = map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks
       val tasms = map (strip_trueprop o Thm.term_of) asms
       val tasm2 = map (#3 o stripq [] []) tasms
-      val (symm, _) = Symmap.insert (Symmap.empty 10000, "#")
+      val (symm, _) = Symmap.insert (Symmap.empty 10000, @{const_name hashek})
       val (tab, cls) = conv_asms symm tasm2 ||> List.concat
-      val _ = Matrix.insert_clauses db cls
+      val _ = (Array.modify (K []) db; Matrix.insert_clauses db cls)
       val prf = prove2 10
       val _ = pretty_clauses cls |> Pretty.writeln
   in all_tac
   end
 
 fun raw_isacop ctxt =
-  (* K (print_tac ctxt "Initial proof state") THEN' *)
+  (* introduce hashek into goal *)
+  resolve_tac ctxt @{thms hashekE} THEN'
+  K (print_tac ctxt "Initial proof state") THEN'
   negOfGoal_tac ctxt THEN'
   (* K (print_tac ctxt "After negation") THEN' *)
   simp_tac_only ctxt @{thms meta_simps IFOL_simps cla_simps} THEN'

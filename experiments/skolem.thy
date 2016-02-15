@@ -71,6 +71,11 @@ lemma hashek_prop:
   shows "a \<and> b"
 using assms unfolding hashek_def by simp
 
+lemma hashekE:
+  assumes "P \<and> hashek"
+  shows "P"
+using assms unfolding hashek_def by simp
+
 ML {*
 
 val x = 2;
@@ -157,10 +162,11 @@ lemma "True \<Longrightarrow> False"
 apply (tactic {* TRY (asm_full_simp_tac @{context} 1) *})
 oops
 
-declare [[ML_print_depth = 50]]
-ML {* @{term "\<forall>x. \<exists>y. f(x, y)"} *}
 
-lemma "\<And>a. \<forall>x. \<exists>y. P(x,y) \<Longrightarrow> \<forall>x. P(f(x),a)"
+declare [[ML_print_depth = 50]]
+ML {* @{term "\<forall>x. \<exists>y. f(x, y) \<and> Q(r)"} *}
+
+lemma "\<And>a. \<forall>x. \<exists>y. P(x,y) \<Longrightarrow> \<forall>x. P(f(x),a) \<Longrightarrow> Q(r)"
 apply (isacop 1)
 
 lemma
