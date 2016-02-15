@@ -357,14 +357,17 @@ fun destConstFree (Const (c, T)) = (c, T)
   | destConstFree (Free (f, T)) = (f, T)
   | destConstFree x = raise TERM ("destConstFree", [x])
 
-fun consL l x = x :: l
+(* Also known as Curry's C combinator. *)
+fun flip f x y = f y x
 
-fun conv_term tab t =
+(* TODO! Introduce Skolem functions! *)
+fun conv_term tab (Bound b) = (tab, FTerm.V b)
+  | conv_term tab t =
   let val (P, args) = strip_comb t
       val Ps = fst (destConstFree P)
       val (tab', P') = Symmap.insert (tab, Ps)
       val (tab'', args') = List.foldl
-    (fn (t, (tab, args)) => conv_term tab t ||> consL args) (tab', []) args
+    (fn (t, (tab, args)) => conv_term tab t ||> flip cons args) (tab', []) args
   in (tab'', FTerm.A (P', args'))
   end
 
@@ -405,11 +408,11 @@ val pretty_clause = Pretty.separate " \<or>" o map pretty_lit
 val pretty_clauses = Pretty.block o Pretty.separate " \<and>" o map (Pretty.enclose "(" ")" o pretty_clause)
 
 fun conv_clause tab =
-  fold_clause (fn (t, (tab, cl)) => conv_prop tab t ||> consL cl) (tab, [])
+  fold_clause (fn (t, (tab, cl)) => conv_prop tab t ||> flip cons cl) (tab, [])
 fun conv_clauses tab =
-  fold_clauses (fn (cl, (tab, cls)) => conv_clause tab cl ||> consL cls) (tab, [])
+  fold_clauses (fn (cl, (tab, cls)) => conv_clause tab cl ||> flip cons cls) (tab, [])
 fun conv_asms tab =
-  List.foldl (fn (cls, (tab, asms)) => conv_clauses tab cls ||> consL asms) (tab, [])
+  List.foldl (fn (cls, (tab, asms)) => conv_clauses tab cls ||> flip cons asms) (tab, [])
 
 fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cterm, ...}) =
   let val _ = map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks

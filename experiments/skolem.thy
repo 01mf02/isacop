@@ -157,9 +157,10 @@ lemma "True \<Longrightarrow> False"
 apply (tactic {* TRY (asm_full_simp_tac @{context} 1) *})
 oops
 
-ML {* @{term "a"} *}
+declare [[ML_print_depth = 50]]
+ML {* @{term "\<forall>x. \<exists>y. f(x, y)"} *}
 
-lemma "\<And>a. a"
+lemma "\<And>a. \<forall>x. \<exists>y. P(x,y) \<Longrightarrow> \<forall>x. P(x,a)"
 apply (isacop 1)
 
 lemma
