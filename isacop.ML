@@ -127,18 +127,18 @@ fun termVars (V x) = [x]
 
 end
 
-signature DATABASE =
+signature MATRIX =
 sig
 
 type contrapositive
 type matrix
 val entries : matrix -> FTerm.predicate -> contrapositive list
-val set : matrix -> FTerm.lit list list -> unit
+val insert_clauses : matrix -> FTerm.lit list list -> unit
 val hashek : FTerm.predicate
 
 end
 
-structure Database : DATABASE =
+structure Matrix : MATRIX =
 struct
 
 (* (lit-arguments, rest-clause, vars) *)
@@ -184,7 +184,7 @@ local
     in  List.app_rest [] (insert_contrapositive mat max_var) cl
     end
 in
-  fun set mat = List.app (insert_clause mat)
+  fun insert_clauses mat = List.app (insert_clause mat)
 end
 
 fun entries mat neglit = Array.sub (mat, nat_of_int neglit)
@@ -280,7 +280,7 @@ datatype proof =
   | Res of (FTerm.lit * FTerm.lit list * FTerm.lit list)
 exception Solved of (int list * proof) list
 
-val db : Database.matrix = Array.array (10000, [])
+val db : Matrix.matrix = Array.array (10000, [])
 
 
 fun prove sub (hist as (path, lem, _)) alt (todo, prf) = fn
@@ -305,7 +305,7 @@ and reduce sub lit1 rest hist alt (todo, prf) neglit = fn
           end
       | NONE => reduce sub lit1 rest hist alt (todo, prf) neglit pt)
   | [] =>
-      let val dbs = Database.entries db (fst neglit)
+      let val dbs = Matrix.entries db (fst neglit)
       in  extend sub lit1 rest hist alt (todo, prf) dbs
       end
 and extend sub lit1 rest (hist as (path, lem, lim)) alt (todo, prf) = fn
@@ -328,7 +328,7 @@ fun prove2 lim = prove
   ([], [], lim)
   (fn () => ())
   ((fn (_,_,prf) => raise (Solved prf)), [])
-  [(Database.hashek,[])]
+  [(Matrix.hashek,[])]
 
 
 val trace = Attrib.setup_config_bool @{binding isacop_trace} (K true);
@@ -422,6 +422,8 @@ fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cte
       val tasm2 = map (#3 o stripq [] []) tasms
       val (symm, _) = Symmap.insert (Symmap.empty 10000, "#")
       val (tab, cls) = conv_asms symm tasm2 ||> List.concat
+      val _ = Matrix.insert_clauses db cls
+      val prf = prove2 10
       val _ = pretty_clauses cls |> Pretty.writeln
   in all_tac
   end
