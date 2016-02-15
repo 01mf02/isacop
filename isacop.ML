@@ -357,12 +357,21 @@ fun destConstFree (Const (c, T)) = (c, T)
   | destConstFree (Free (f, T)) = (f, T)
   | destConstFree x = raise TERM ("destConstFree", [x])
 
-fun conv_prop tab (@{const "Not"} $ t) = conv_prop tab t ||> FTerm.negateLit
-  | conv_prop tab t =
+fun consL l x = x :: l
+
+fun conv_term tab t =
   let val (P, args) = strip_comb t
       val Ps = fst (destConstFree P)
       val (tab', P') = Symmap.insert (tab, Ps)
-  in (tab', (P', []))
+      val (tab'', args') = List.foldl
+    (fn (t, (tab, args)) => conv_term tab t ||> consL args) (tab', []) args
+  in (tab'', FTerm.A (P', args'))
+  end
+
+fun conv_prop tab (@{const "Not"} $ t) = conv_prop tab t ||> FTerm.negateLit
+  | conv_prop tab t =
+  let val (tab', FTerm.A (P, args)) = conv_term tab t
+  in (tab', (P, args))
   end
 
 fun stripq all ex (Const (@{const_name "All"}, _) $ Abs (x, T, t)) = stripq ((x,T)::all) ex t
@@ -384,15 +393,23 @@ val term_of_clauses =
   List.foldl (fn (cl, acc) => FOLogic.mk_conj (
   foldl1 (fn (t , acc) => FOLogic.mk_disj (t, acc)) cl, acc))*)
 
-val pretty_clause = Pretty.separate " \<or>" o map (Pretty.str o Int.toString o #1)
+fun pretty_term (FTerm.V v) = Pretty.str ("v" ^ Int.toString v)
+  | pretty_term (FTerm.A (f, [])) = Pretty.str (Int.toString f)
+  | pretty_term (FTerm.A (f, args)) = Pretty.block
+      [ Pretty.str (Int.toString f)
+      , Pretty.enclose "(" ")" (Pretty.commas (map pretty_term args))
+      ]
+
+fun pretty_lit (P, args) = pretty_term (FTerm.A (P, args))
+val pretty_clause = Pretty.separate " \<or>" o map pretty_lit
 val pretty_clauses = Pretty.block o Pretty.separate " \<and>" o map (Pretty.enclose "(" ")" o pretty_clause)
 
 fun conv_clause tab =
-  fold_clause (fn (t, (tab, cl)) => let val (tab', t') = conv_prop tab t in (tab', t' :: cl) end) (tab, [])
+  fold_clause (fn (t, (tab, cl)) => conv_prop tab t ||> consL cl) (tab, [])
 fun conv_clauses tab =
-  fold_clauses (fn (cl, (tab, cls)) => let val (tab', cl') = conv_clause tab cl in (tab', cl'::cls) end) (tab, [])
+  fold_clauses (fn (cl, (tab, cls)) => conv_clause tab cl ||> consL cls) (tab, [])
 fun conv_asms tab =
-  List.foldl (fn (cls, (tab, asms)) => let val (tab', cls') = conv_clauses tab cls in (tab', cls'::asms) end) (tab, [])
+  List.foldl (fn (cls, (tab, asms)) => conv_clauses tab cls ||> consL asms) (tab, [])
 
 fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cterm, ...}) =
   let val _ = map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks
