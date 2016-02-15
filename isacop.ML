@@ -1,5 +1,3 @@
-
-
 signature FTERM =
 sig
 
@@ -132,8 +130,10 @@ end
 signature DATABASE =
 sig
 
-type contrapositive = (FTerm.term list * FTerm.lit list * int)
-val entries : int -> contrapositive list
+type contrapositive
+type matrix
+val entries : matrix -> FTerm.predicate -> contrapositive list
+val set : matrix -> FTerm.lit list list -> unit
 val hashek : FTerm.predicate
 
 end
@@ -144,10 +144,8 @@ struct
 (* (lit-arguments, rest-clause, vars) *)
 type contrapositive = (FTerm.term list * FTerm.lit list * int)
 
-(* structure PTable = Table(type key = Term.predicate val ord = Term.predicate_ord) *)
-
 (* for every predicate, store list of possible contrapositives *)
-val db : (contrapositive list) Array.array = Array.array (10000, [])
+type matrix = contrapositive list Array.array
 
 (*fun int_of_nat n = if n mod 2 = 0 then n div 2 else ~(n+1) div 2*)
 fun nat_of_int i = if i >= 0 then 2*i else ~(2*i + 1)
@@ -174,22 +172,22 @@ fun clause_prefix_hash cl =
 
 
 local
-  fun contrapositive2db max_var ((p,tl), rest) =
+  fun insert_contrapositive mat max_var ((p,tl), rest) =
     let val n = nat_of_int p
         val nohashek = List.filter (fn l => l <> hashek_lit) rest
-    in  Array.update (db, n, (tl, nohashek, max_var) :: Array.sub (db, n))
+    in  Array.update (mat, n, (tl, nohashek, max_var) :: Array.sub (mat, n))
     end
 
-  fun cl2db cl =
+  fun insert_clause mat cl =
     let val max_var = clauseMaxVar cl
         val cl = clause_prefix_hash cl
-    in  List.app_rest [] (contrapositive2db max_var) cl
+    in  List.app_rest [] (insert_contrapositive mat max_var) cl
     end
 in
-  val axioms2db = List.app cl2db
+  fun set mat = List.app (insert_clause mat)
 end
 
-fun entries neglit = Array.sub (db, nat_of_int neglit)
+fun entries mat neglit = Array.sub (mat, nat_of_int neglit)
 end
 
 
@@ -282,6 +280,8 @@ datatype proof =
   | Res of (FTerm.lit * FTerm.lit list * FTerm.lit list)
 exception Solved of (int list * proof) list
 
+val db : Database.matrix = Array.array (10000, [])
+
 
 fun prove sub (hist as (path, lem, _)) alt (todo, prf) = fn
     [] => todo (sub, alt, prf)
@@ -305,7 +305,7 @@ and reduce sub lit1 rest hist alt (todo, prf) neglit = fn
           end
       | NONE => reduce sub lit1 rest hist alt (todo, prf) neglit pt)
   | [] =>
-      let val dbs = Database.entries (fst neglit)
+      let val dbs = Database.entries db (fst neglit)
       in  extend sub lit1 rest hist alt (todo, prf) dbs
       end
 and extend sub lit1 rest (hist as (path, lem, lim)) alt (todo, prf) = fn
@@ -421,8 +421,8 @@ fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cte
       val tasms = map (strip_trueprop o Thm.term_of) asms
       val tasm2 = map (#3 o stripq [] []) tasms
       val (symm, _) = Symmap.insert (Symmap.empty 10000, "#")
-      val (tab, cls) = conv_asms symm tasm2
-      val _ = map pretty_clauses cls |> Pretty.writeln_chunks
+      val (tab, cls) = conv_asms symm tasm2 ||> List.concat
+      val _ = pretty_clauses cls |> Pretty.writeln
   in all_tac
   end
 
