@@ -133,7 +133,7 @@ signature DATABASE =
 sig
 
 type contrapositive = (FTerm.term list * FTerm.lit list * int)
-val db_entries : int -> contrapositive list
+val entries : int -> contrapositive list
 val hashek : FTerm.predicate
 
 end
@@ -189,7 +189,7 @@ in
   val axioms2db = List.app cl2db
 end
 
-fun db_entries neglit = Array.sub (db, nat_of_int neglit)
+fun entries neglit = Array.sub (db, nat_of_int neglit)
 end
 
 
@@ -305,7 +305,7 @@ and reduce sub lit1 rest hist alt (todo, prf) neglit = fn
           end
       | NONE => reduce sub lit1 rest hist alt (todo, prf) neglit pt)
   | [] =>
-      let val dbs = Database.db_entries (fst neglit)
+      let val dbs = Database.entries (fst neglit)
       in  extend sub lit1 rest hist alt (todo, prf) dbs
       end
 and extend sub lit1 rest (hist as (path, lem, lim)) alt (todo, prf) = fn
@@ -366,10 +366,12 @@ fun conv_term tab (Bound b) = (tab, FTerm.V b)
   let val (P, args) = strip_comb t
       val Ps = fst (destConstFree P)
       val (tab', P') = Symmap.insert (tab, Ps)
-      val (tab'', args') = List.foldl
-    (fn (t, (tab, args)) => conv_term tab t ||> flip cons args) (tab', []) args
+      val (tab'', args') = conv_args tab' args
   in (tab'', FTerm.A (P', args'))
   end
+and conv_args tab =
+  List.foldl (fn (t, (tab, args)) => conv_term tab t ||> flip cons args) (tab, []) ##> List.rev
+
 
 fun conv_prop tab (@{const "Not"} $ t) = conv_prop tab t ||> FTerm.negateLit
   | conv_prop tab t =
@@ -408,11 +410,11 @@ val pretty_clause = Pretty.separate " \<or>" o map pretty_lit
 val pretty_clauses = Pretty.block o Pretty.separate " \<and>" o map (Pretty.enclose "(" ")" o pretty_clause)
 
 fun conv_clause tab =
-  fold_clause (fn (t, (tab, cl)) => conv_prop tab t ||> flip cons cl) (tab, [])
+  fold_clause (fn (t, (tab, cl)) => conv_prop tab t ||> flip cons cl) (tab, []) ##> List.rev
 fun conv_clauses tab =
-  fold_clauses (fn (cl, (tab, cls)) => conv_clause tab cl ||> flip cons cls) (tab, [])
+  fold_clauses (fn (cl, (tab, cls)) => conv_clause tab cl ||> flip cons cls) (tab, []) ##> List.rev
 fun conv_asms tab =
-  List.foldl (fn (cls, (tab, asms)) => conv_clauses tab cls ||> flip cons asms) (tab, [])
+  List.foldl (fn (cls, (tab, asms)) => conv_clauses tab cls ||> flip cons asms) (tab, []) ##> List.rev
 
 fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cterm, ...}) =
   let val _ = map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks
@@ -425,13 +427,13 @@ fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cte
   end
 
 fun raw_isacop ctxt =
-  K (print_tac ctxt "Initial proof state") THEN'
+  (* K (print_tac ctxt "Initial proof state") THEN' *)
   negOfGoal_tac ctxt THEN'
-  K (print_tac ctxt "After negation") THEN'
+  (* K (print_tac ctxt "After negation") THEN' *)
   simp_tac_only ctxt @{thms meta_simps IFOL_simps cla_simps} THEN'
-  K (print_tac ctxt "After simplification") THEN'
+  (* K (print_tac ctxt "After simplification") THEN' *)
   simp_tac_only ctxt @{thms prenex_ex prenex_all} THEN'
-  K (print_tac ctxt "After prenexing") THEN'
+  (* K (print_tac ctxt "After prenexing") THEN' *)
   simp_tac_only ctxt @{thms precnf_simps} THEN'
   simp_tac_only ctxt @{thms cnf_simps} THEN'
   simp_tac_only ctxt @{thms conj_simps disj_simps} THEN'
