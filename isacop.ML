@@ -193,19 +193,21 @@ fun db_entries neglit = Array.sub (db, nat_of_int neglit)
 end
 
 
-signature BIMAP =
+signature INTBIMAP =
 sig
 
 type left
 type right
 type bimap
 
+val    empty : int -> bimap
+val   insert : (bimap * left) -> (bimap * right)
 val  forward : (bimap * left) -> right option
 val backward : (bimap * right) -> left option
 
 end
 
-functor IntBimap (Key : KEY) : BIMAP =
+functor IntBimap (Key : KEY) : INTBIMAP =
 struct
 
 structure Tab = Table (Key)
@@ -221,17 +223,21 @@ type bimap = {
 
 fun empty size = {forth = Tab.empty, back = Array.array (size, NONE), maxIndex = 0}
 
-fun insert ({back = b, maxIndex = m, forth = f}, x) =
-  (Array.update (b, m, SOME x); ({forth = f, back = b, maxIndex = m + 1}, m))
-
 fun forward ({forth, ...}, x) = Tab.lookup forth x
 
-fun backward ({back, ...}, i) = Array.sub (back, i)
+fun backward ({back, ...} : bimap, i) = Array.sub (back, i)
 
-fun insertIf (bm, x) = case forward (bm, x) of SOME i => (bm, i) | NONE => insert (bm, x)
+local
+  fun insertNew ({back = b, maxIndex = m, forth = f}, x) =
+    (Array.update (b, m, SOME x); ({forth = f, back = b, maxIndex = m + 1}, m))
+in
+  fun insert (bm, x) = case forward (bm, x) of SOME i => (bm, i) | NONE => insertNew (bm, x)
+end
 
 end
 
+
+structure Symmap = IntBimap (type key = string val ord = string_ord)
 
 
 signature ISACOP =
@@ -347,12 +353,10 @@ fun simp_tac_only ctxt ths =
   put_simpset FOL_basic_ss ctxt addsimps ths
   |> TRY oo asm_full_simp_tac
 
-structure Symmap = IntBimap (type key = string val ord = string_ord)
-
-
 fun conv_prop tab t =
   let val (P, args) = strip_comb t
-      val (tab', P') = Symmap.insertIf (tab, P)
+      val (Ps, _) = dest_Const P
+      val (tab', P') = Symmap.insert (tab, Ps)
   in P
   end
 
