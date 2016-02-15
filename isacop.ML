@@ -353,11 +353,16 @@ fun simp_tac_only ctxt ths =
   put_simpset FOL_basic_ss ctxt addsimps ths
   |> TRY oo asm_full_simp_tac
 
-fun conv_prop tab t =
+fun destConstFree (Const (c, T)) = (c, T)
+  | destConstFree (Free (f, T)) = (f, T)
+  | destConstFree x = raise TERM ("destConstFree", [x])
+
+fun conv_prop tab (@{const "Not"} $ t) = conv_prop tab t ||> FTerm.negateLit
+  | conv_prop tab t =
   let val (P, args) = strip_comb t
-      val (Ps, _) = dest_Const P
+      val Ps = fst (destConstFree P)
       val (tab', P') = Symmap.insert (tab, Ps)
-  in (tab', P')
+  in (tab', (P', []))
   end
 
 fun stripq all ex (Const (@{const_name "All"}, _) $ Abs (x, T, t)) = stripq ((x,T)::all) ex t
@@ -379,7 +384,7 @@ val term_of_clauses =
   List.foldl (fn (cl, acc) => FOLogic.mk_conj (
   foldl1 (fn (t , acc) => FOLogic.mk_disj (t, acc)) cl, acc))*)
 
-val pretty_clause = Pretty.separate " \<or>" o map (Pretty.str o Int.toString)
+val pretty_clause = Pretty.separate " \<or>" o map (Pretty.str o Int.toString o #1)
 val pretty_clauses = Pretty.block o Pretty.separate " \<and>" o map (Pretty.enclose "(" ")" o pretty_clause)
 
 fun conv_clause tab =
@@ -391,10 +396,11 @@ fun conv_asms tab =
 
 fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cterm, ...}) =
   let val _ = map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks
-      val tasms = map Thm.term_of asms
-      val (tab, cls) = conv_asms (Symmap.empty 10000) tasms
+      val tasms = map (strip_trueprop o Thm.term_of) asms
+      val tasm2 = map (#3 o stripq [] []) tasms
+      val (symm, _) = Symmap.insert (Symmap.empty 10000, "#")
+      val (tab, cls) = conv_asms symm tasm2
       val _ = map pretty_clauses cls |> Pretty.writeln_chunks
-      val _ = pretty_clauses [[1, 2, 3], [~2, 4]] |> Pretty.writeln
   in all_tac
   end
 

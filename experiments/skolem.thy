@@ -157,6 +157,11 @@ lemma "True \<Longrightarrow> False"
 apply (tactic {* TRY (asm_full_simp_tac @{context} 1) *})
 oops
 
+ML {* @{term "a"} *}
+
+lemma "\<And>a. a"
+apply (isacop 1)
+
 lemma
   "\<And>s. \<forall>x. ((P(x) \<longleftrightarrow> a \<and> b) \<or> ((\<forall>z. R(z,s)) \<or> (\<exists>y. \<forall>w. \<exists>v. Q(y, w, v)) \<and> r)) \<or> z \<Longrightarrow> a \<or> (b \<and> c) \<Longrightarrow> True \<Longrightarrow> False"
 apply (isacop 1)
