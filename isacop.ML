@@ -357,25 +357,46 @@ fun conv_prop tab t =
   let val (P, args) = strip_comb t
       val (Ps, _) = dest_Const P
       val (tab', P') = Symmap.insert (tab, Ps)
-  in P
+  in (tab', P')
   end
 
 fun stripq all ex (Const (@{const_name "All"}, _) $ Abs (x, T, t)) = stripq ((x,T)::all) ex t
   | stripq all ex (Const (@{const_name "Ex"}, _) $ Abs (x, T, t)) = stripq all ((x, T, all)::ex) t
   | stripq all ex t = (all, ex, t)
 
-fun fold_clauses f acc (@{const conj} $ t $ u) = fold_clauses f (f acc t) u
-  | fold_clauses f acc t = f acc t
+fun fold_clauses f acc (@{const conj} $ t $ u) = fold_clauses f (f (t, acc)) u
+  | fold_clauses f acc t = f (t, acc)
 
-fun fold_clause f acc (@{const disj} $ t $ u) = fold_clause f (f acc t) u
-  | fold_clause f acc t = f acc t
+fun fold_clause f acc (@{const disj} $ t $ u) = fold_clause f (f (t, acc)) u
+  | fold_clause f acc t = f (t, acc)
 
 fun strip_trueprop (Const (@{const_name "Trueprop"}, _) $ t) = t
   | strip_trueprop t = t
 
+(*fun foldl1 f (x::xs) = List.foldl f x xs
+
+val term_of_clauses =
+  List.foldl (fn (cl, acc) => FOLogic.mk_conj (
+  foldl1 (fn (t , acc) => FOLogic.mk_disj (t, acc)) cl, acc))*)
+
+val pretty_clause = Pretty.separate " \<or>" o map (Pretty.str o Int.toString)
+val pretty_clauses = Pretty.block o Pretty.separate " \<and>" o map (Pretty.enclose "(" ")" o pretty_clause)
+
+fun conv_clause tab =
+  fold_clause (fn (t, (tab, cl)) => let val (tab', t') = conv_prop tab t in (tab', t' :: cl) end) (tab, [])
+fun conv_clauses tab =
+  fold_clauses (fn (cl, (tab, cls)) => let val (tab', cl') = conv_clause tab cl in (tab', cl'::cls) end) (tab, [])
+fun conv_asms tab =
+  List.foldl (fn (cls, (tab, asms)) => let val (tab', cls') = conv_clauses tab cls in (tab', cls'::asms) end) (tab, [])
+
 fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cterm, ...}) =
-  (map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks;
-  all_tac)
+  let val _ = map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks
+      val tasms = map Thm.term_of asms
+      val (tab, cls) = conv_asms (Symmap.empty 10000) tasms
+      val _ = map pretty_clauses cls |> Pretty.writeln_chunks
+      val _ = pretty_clauses [[1, 2, 3], [~2, 4]] |> Pretty.writeln
+  in all_tac
+  end
 
 fun raw_isacop ctxt =
   K (print_tac ctxt "Initial proof state") THEN'
