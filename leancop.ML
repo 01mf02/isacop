@@ -131,12 +131,12 @@ and unify_rename_list off = ListPair.foldlEq (unify_rename off)
 fun unify_rename_subst off sub (l1, l2) list =
   (unify_rename_list off sub (l1, l2), List.map (offsetLitVars off) list)
 
-fun varEqTerm sub x (V y) = x = y orelse Subst.mapSubst false (varEqTerm sub x) sub y
+fun varEqTerm sub x (V y) = x = y orelse Subst2.mapSubst false (varEqTerm sub x) sub y
   | varEqTerm _ _ (A _) = false
 
 fun eqTerm sub (tm1, tm2) = case (tm1,tm2) of
     (A(f,fa),A(g,ga)) => (f = g andalso eqTermList sub (fa, ga))
-  | (V(x),_) => Subst.mapSubst (varEqTerm sub x tm2) (fn t => eqTerm sub (tm1, t)) sub x
+  | (V(x),_) => Subst2.mapSubst (varEqTerm sub x tm2) (fn t => eqTerm sub (tm1, t)) sub x
   | (_,V(_)) => eqTerm sub (tm2, tm1)
 and eqTermList sub = ListPair.allEq (eqTerm sub)
 
@@ -357,7 +357,7 @@ datatype proof =
   | Res of (FTerm.lit * FTerm.lit list * FTerm.lit list)
 
 val set_matrix : FTerm.lit list list -> unit
-val prove_some : int -> (int list * proof) list option
+val prove_some : int -> (Subst2.substitution * proof) list option
 
 end
 
@@ -372,7 +372,7 @@ datatype proof =
     Lem of FTerm.lit
   | Pat of FTerm.lit
   | Res of (FTerm.lit * FTerm.lit list * FTerm.lit list)
-exception Solved of (int list * proof) list
+exception Solved of (Subst2.substitution * proof) list
 
 val db : Matrix.matrix = Array.array (10000, [])
 
@@ -384,15 +384,15 @@ fun prove sub (hist as (path, lem, _)) alt (todo, prf) = fn
   | (cl as lit1 :: rest) =>
      let val cont = (fn () => reduce sub lit1 rest hist alt (todo, prf) (FTerm.negateLit lit1) path)
          val nalt = if cut1 then alt else cont
-     in  if List.exists (fn x => List.exists (Unification.eq sub x) path) cl
+     in  if List.exists (fn x => List.exists (Unif.eq sub x) path) cl
            then alt ()
-         else if List.exists (Unification.eq sub lit1) lem
+         else if List.exists (Unif.eq sub lit1) lem
            then prove sub hist nalt (todo, (fst sub, Lem lit1) :: prf) rest
          else
            reduce sub lit1 rest hist alt (todo, prf) (FTerm.negateLit lit1) path
      end
 and reduce sub lit1 rest hist alt (todo, prf) neglit = fn
-    plit :: pt => (case Unification.unify sub neglit plit of
+    plit :: pt => (case Unif.unify sub neglit plit of
         SOME sub2 =>
           let val nprf = (fst sub, Pat lit1) :: prf
               fun cont () = reduce sub lit1 rest hist alt (todo, prf) neglit pt
@@ -406,7 +406,7 @@ and reduce sub lit1 rest hist alt (todo, prf) neglit = fn
       end
 and extend sub lit1 rest (hist as (path, lem, lim)) alt (todo, prf) = fn
     ((eh as (_,_,vars)) :: et) =>
-    (case (if lim <= 0 andalso vars > 0 then NONE else Unification.unify_rename sub (snd lit1) eh) of
+    (case (if lim <= 0 andalso vars > 0 then NONE else Unif.unify_rename sub (snd lit1) eh) of
       SOME (sub2, cla1) =>
       let val nhis1 = (path, lit1 :: lem, lim)
           fun ntodo (sub, nalt, prf) = prove sub nhis1 (if cut3 then alt else nalt) (todo, prf) rest
@@ -419,7 +419,7 @@ and extend sub lit1 rest (hist as (path, lem, lim)) alt (todo, prf) = fn
   | [] => alt ()
 
 fun prove_exception lim = prove
-  (Unification.emptySub, 0)
+  (Subst2.emptySub, 0)
   ([], [], lim)
   (fn () => ())
   ((fn (_,_,prf) => raise (Solved prf)), [])
