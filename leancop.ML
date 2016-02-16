@@ -217,6 +217,7 @@ datatype proof =
   | Pat of FTerm.lit
   | Res of (FTerm.lit * FTerm.clause * FTerm.clause)
 
+val prove_exception : Matrix.matrix -> int -> unit
 val prove_some : Matrix.matrix -> int -> (Subst.substitution * proof) list option
 
 end
