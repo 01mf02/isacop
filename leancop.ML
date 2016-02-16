@@ -6,11 +6,30 @@ type predicate
 datatype term = V of variable | A of int * term list
 type lit
 
+val negateLit : lit -> lit
 val termVars : term -> variable list
 val mapVars : (variable -> variable) -> term -> term
-val negateLit : lit -> lit
 
 end
+
+structure FTerm : FTERM =
+struct
+
+type variable = int
+type predicate = int
+datatype term = V of variable | A of int * term list
+type lit = predicate * term list
+
+fun negateLit (i, l) = (~i, l)
+
+fun termVars (V x) = [x]
+  | termVars (A (_, args)) = List.concat (List.map termVars args)
+
+fun mapVars f (V x) = V (f x)
+  | mapVars f (A (g, args)) = A(g, map (mapVars f) args)
+
+end
+
 
 signature LIST =
 sig
@@ -33,24 +52,6 @@ fun app_rest _ _ [] = ()
 end
 
 
-structure FTerm : FTERM =
-struct
-
-type variable = int
-type predicate = int
-datatype term = V of variable | A of int * term list
-type lit = predicate * term list
-
-fun negateLit (i, l) = (~i, l)
-
-fun termVars (V x) = [x]
-  | termVars (A (_, args)) = List.concat (List.map termVars args)
-
-fun mapVars f (V x) = V (f x)
-  | mapVars f (A (g, args)) = A(g, map (mapVars f) args)
-
-end
-
 signature UNIFICATION =
 sig
 
@@ -58,25 +59,35 @@ include FTERM
 
 type environment
 
-exception Unify
-
+(*
 val unifyList : environment -> term list -> term list -> environment
 val unifyLit : environment -> lit -> lit -> environment
 val unify_rename_subst : int -> term list -> term list -> environment -> lit list -> environment * lit list
 val eqLit : environment -> lit -> lit -> bool
+*)
+
 val emptySub : environment
+
+val eq : environment * 'a -> ''b * FTerm.term list -> ''b * FTerm.term list -> bool
+val unify : environment * 'a -> ''b * FTerm.term list -> ''b * FTerm.term list -> (environment * 'a) option
+val unify_rename : environment * FTerm.variable ->
+              FTerm.term list ->
+              FTerm.term list * ('a * FTerm.term list) list * FTerm.variable ->
+              ((environment * FTerm.variable) * ('a * FTerm.term list) list) option
 
 end
 
-structure Unification =
+structure Unification : UNIFICATION =
 struct
 
 open FTerm
 
-type environment = variable list
+type subst_array = term option Array.array
+type subst_list = variable list
+type environment = subst_list
 
-val subst = Array.array (1000000, NONE : term option)
-val sh : environment Unsynchronized.ref = Unsynchronized.ref []
+val subst : subst_array = Array.array (1000000, NONE)
+val sh : subst_list Unsynchronized.ref = Unsynchronized.ref []
 
 exception Unify
 
@@ -138,6 +149,22 @@ end
 
 val emptySub = []
 
+fun wrap x = SOME x handle Unify => NONE
+
+fun unify_rename1 (s, off) args1 (args2, rest, 0) = ((unifyList s args1 args2, off), rest)
+  | unify_rename1 (s, off) args1 (args2, rest, vars) =
+    let val (s, rest) = unify_rename_subst off args1 args2 s rest
+    in  ((s, off + vars), rest)
+    end
+
+
+fun eq (sub, _) l1 l2 = eqLit sub l1 l2;;
+
+fun unify (sub, off) l1 l2 = wrap (unifyLit sub l1 l2, off)
+
+fun unify_rename sub args1 rest = wrap (unify_rename1 sub args1 rest)
+
+
 end
 
 
@@ -155,6 +182,8 @@ end
 structure Matrix : MATRIX =
 struct
 
+val goal_directed = true
+
 (* (lit-arguments, rest-clause, vars) *)
 type contrapositive = (FTerm.term list * FTerm.lit list * int)
 
@@ -165,7 +194,6 @@ type matrix = contrapositive list Array.array
 fun nat_of_int i = if i >= 0 then 2*i else ~(2*i + 1)
 
 
-(* TODO! *)
 val hashek = 1
 val hashek_lit = (~hashek, [])
 
@@ -175,15 +203,11 @@ fun clauseVars cl = List.concat (List.map litVars cl)
 
 fun clauseMaxVar cl = 1 + List.foldl Int.max (~1) (clauseVars cl)
 
-val goal_directed = true
-
-
 fun clause_prefix_hash cl =
   if not goal_directed andalso
      List.all (fn (p, _) => p < 0) cl andalso
      not (member (op =) cl hashek_lit)
   then hashek_lit :: cl else cl
-
 
 local
   fun insert_contrapositive mat max_var ((p,tl), rest) =
@@ -208,35 +232,22 @@ end
 signature LEANCOP =
 sig
 
-structure Classical: CLASSICAL
+datatype proof =
+    Lem of FTerm.lit
+  | Pat of FTerm.lit
+  | Res of (FTerm.lit * FTerm.lit list * FTerm.lit list)
+
+val set_matrix : FTerm.lit list list -> unit
+val prove_some : int -> (int list * proof) list option
 
 end
 
-structure leanCoP =
+structure leanCoP : LEANCOP =
 struct
 
 val cut1 = true
 val cut2 = true
 val cut3 = true
-
-(* Some counters *)
-val infer = Unsynchronized.ref 0
-val depth = Unsynchronized.ref 0
-val depthinfer = Unsynchronized.ref 0
-
-
-fun eq (sub, _) l1 l2 = Unification.eqLit sub l1 l2;;
-
-fun unify (sub, off) l1 l2 = SOME (Unification.unifyLit sub l1 l2, off) handle Unification.Unify => NONE
-
-fun unify_rename (s, off) args1 (args2, rest, vars) =
-  let val xx = if vars = 0 then ((Unification.unifyList s args1 args2, off), rest)
-               else let val (s, rest) = Unification.unify_rename_subst off args1 args2 s rest
-                    in  ((s, off + vars), rest)
-                    end
-  in SOME xx
-  end
-  handle Unification.Unify => NONE
 
 datatype proof =
     Lem of FTerm.lit
@@ -254,15 +265,15 @@ fun prove sub (hist as (path, lem, _)) alt (todo, prf) = fn
   | (cl as lit1 :: rest) =>
      let val cont = (fn () => reduce sub lit1 rest hist alt (todo, prf) (FTerm.negateLit lit1) path)
          val nalt = if cut1 then alt else cont
-     in  if List.exists (fn x => List.exists (eq sub x) path) cl
+     in  if List.exists (fn x => List.exists (Unification.eq sub x) path) cl
            then alt ()
-         else if List.exists (eq sub lit1) lem
+         else if List.exists (Unification.eq sub lit1) lem
            then prove sub hist nalt (todo, (fst sub, Lem lit1) :: prf) rest
          else
            reduce sub lit1 rest hist alt (todo, prf) (FTerm.negateLit lit1) path
      end
 and reduce sub lit1 rest hist alt (todo, prf) neglit = fn
-    plit :: pt => (case unify sub neglit plit of
+    plit :: pt => (case Unification.unify sub neglit plit of
         SOME sub2 =>
           let val nprf = (fst sub, Pat lit1) :: prf
               fun cont () = reduce sub lit1 rest hist alt (todo, prf) neglit pt
@@ -276,15 +287,14 @@ and reduce sub lit1 rest hist alt (todo, prf) neglit = fn
       end
 and extend sub lit1 rest (hist as (path, lem, lim)) alt (todo, prf) = fn
     ((eh as (_,_,vars)) :: et) =>
-    (case (if lim <= 0 andalso vars > 0 then NONE else unify_rename sub (snd lit1) eh) of
+    (case (if lim <= 0 andalso vars > 0 then NONE else Unification.unify_rename sub (snd lit1) eh) of
       SOME (sub2, cla1) =>
       let val nhis1 = (path, lit1 :: lem, lim)
           fun ntodo (sub, nalt, prf) = prove sub nhis1 (if cut3 then alt else nalt) (todo, prf) rest
           val nhist = (lit1 :: path, lem, lim - 1)
           val nprf  = (fst sub, Res (lit1, path, lem)) :: prf
           fun nalt () = extend sub lit1 rest hist alt (todo, prf) et
-      in  infer := !infer + 1;
-          prove sub2 nhist nalt (ntodo, nprf) cla1
+      in  prove sub2 nhist nalt (ntodo, nprf) cla1
       end
     | NONE => extend sub lit1 rest hist alt (todo, prf) et)
   | [] => alt ()
