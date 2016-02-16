@@ -134,8 +134,9 @@ fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cte
       val (symm, _) = Symmap.insert (Symmap.empty 10000, @{const_name hashek})
       val (tab, cls) = conv_asms symm tasm2 ||> List.concat
       val _ = pretty_clauses cls |> Pretty.writeln
-      val _ = leanCoP.set_matrix cls
-      val prf = leanCoP.prove_some 10
+      val mat = Matrix.empty 10000
+      val _ = Matrix.insert_clauses mat cls
+      val prf = leanCoP.prove_some mat 10
   in all_tac
   end
 
@@ -174,6 +175,3 @@ val _ =
               SIMPLE_METHOD' (isacop_tac ctxt lim)))))
       "lean connection calculus prover");
 end
-
-exception Undefined
-fun undefined () = raise Undefined

@@ -5,6 +5,8 @@ type variable
 type predicate
 datatype term = V of variable | A of int * term list
 type lit
+type clause
+type clauses
 
 val negateLit : lit -> lit
 val termVars : term -> variable list
@@ -19,6 +21,8 @@ type variable = int
 type predicate = int
 datatype term = V of variable | A of int * term list
 type lit = predicate * term list
+type clause = lit list
+type clauses = clause list
 
 fun negateLit (i, l) = (~i, l)
 
@@ -58,7 +62,8 @@ sig
 type contrapositive
 type matrix
 val entries : matrix -> FTerm.predicate -> contrapositive list
-val insert_clauses : matrix -> FTerm.lit list list -> unit
+val insert_clauses : matrix -> FTerm.clauses -> unit
+val empty : int -> matrix
 val hashek : FTerm.predicate
 
 end
@@ -69,7 +74,7 @@ struct
 val goal_directed = true
 
 (* (lit-arguments, rest-clause, vars) *)
-type contrapositive = (FTerm.term list * FTerm.lit list * int)
+type contrapositive = (FTerm.term list * FTerm.clause * int)
 
 (* for every predicate, store list of possible contrapositives *)
 type matrix = contrapositive list Array.array
@@ -110,6 +115,9 @@ in
 end
 
 fun entries mat neglit = Array.sub (mat, nat_of_int neglit)
+
+fun empty size = Array.array (size, [])
+
 end
 
 
@@ -148,7 +156,7 @@ type subst_offset
 val eq : subst_offset -> FTerm.lit -> FTerm.lit -> bool
 val unify : subst_offset -> FTerm.lit -> FTerm.lit -> subst_offset option
 val unify_contra : subst_offset -> FTerm.lit -> Matrix.contrapositive ->
-  (subst_offset * FTerm.lit list) option
+  (subst_offset * FTerm.clause) option
 
 end
 
@@ -224,10 +232,9 @@ sig
 datatype proof =
     Lem of FTerm.lit
   | Pat of FTerm.lit
-  | Res of (FTerm.lit * FTerm.lit list * FTerm.lit list)
+  | Res of (FTerm.lit * FTerm.clause * FTerm.clause)
 
-val set_matrix : FTerm.lit list list -> unit
-val prove_some : int -> (Subst.substitution * proof) list option
+val prove_some : Matrix.matrix -> int -> (Subst.substitution * proof) list option
 
 end
 
@@ -241,60 +248,55 @@ val cut3 = true
 datatype proof =
     Lem of FTerm.lit
   | Pat of FTerm.lit
-  | Res of (FTerm.lit * FTerm.lit list * FTerm.lit list)
+  | Res of (FTerm.lit * FTerm.clause * FTerm.clause)
 exception Solved of (Subst.substitution * proof) list
 
-val db : Matrix.matrix = Array.array (10000, [])
-
-val set_matrix = (Array.modify (K []) db; Matrix.insert_clauses db)
-
-
-fun prove sub (hist as (path, lem, _)) alt (todo, prf) = fn
+fun prove mat sub (hist as (path, lem, _)) alt (todo, prf) = fn
     [] => todo (sub, alt, prf)
   | (cl as lit1 :: rest) =>
-     let val cont = (fn () => reduce sub lit1 rest hist alt (todo, prf) (FTerm.negateLit lit1) path)
+     let val cont = (fn () => reduce mat sub lit1 rest hist alt (todo, prf) (FTerm.negateLit lit1) path)
          val nalt = if cut1 then alt else cont
      in  if List.exists (fn x => List.exists (Unif.eq sub x) path) cl
            then alt ()
          else if List.exists (Unif.eq sub lit1) lem
-           then prove sub hist nalt (todo, (fst sub, Lem lit1) :: prf) rest
+           then prove mat sub hist nalt (todo, (fst sub, Lem lit1) :: prf) rest
          else
-           reduce sub lit1 rest hist alt (todo, prf) (FTerm.negateLit lit1) path
+           reduce mat sub lit1 rest hist alt (todo, prf) (FTerm.negateLit lit1) path
      end
-and reduce sub lit1 rest hist alt (todo, prf) neglit = fn
+and reduce mat sub lit1 rest hist alt (todo, prf) neglit = fn
     plit :: pt => (case Unif.unify sub neglit plit of
         SOME sub2 =>
           let val nprf = (fst sub, Pat lit1) :: prf
-              fun cont () = reduce sub lit1 rest hist alt (todo, prf) neglit pt
+              fun cont () = reduce mat sub lit1 rest hist alt (todo, prf) neglit pt
               val nalt = if cut2 then alt else cont
-          in prove sub2 hist nalt (todo, nprf) rest
+          in prove mat sub2 hist nalt (todo, nprf) rest
           end
-      | NONE => reduce sub lit1 rest hist alt (todo, prf) neglit pt)
+      | NONE => reduce mat sub lit1 rest hist alt (todo, prf) neglit pt)
   | [] =>
-      let val dbs = Matrix.entries db (fst neglit)
-      in  extend sub lit1 rest hist alt (todo, prf) dbs
+      let val dbs = Matrix.entries mat (fst neglit)
+      in  extend mat sub lit1 rest hist alt (todo, prf) dbs
       end
-and extend sub lit rest (hist as (path, lem, lim)) alt (todo, prf) = fn
+and extend mat sub lit rest (hist as (path, lem, lim)) alt (todo, prf) = fn
     ((eh as (_,_,vars)) :: et) =>
     (case (if lim <= 0 andalso vars > 0 then NONE else Unif.unify_contra sub lit eh) of
       SOME (sub2, cla1) =>
       let val nhis1 = (path, lit :: lem, lim)
-          fun ntodo (sub, nalt, prf) = prove sub nhis1 (if cut3 then alt else nalt) (todo, prf) rest
+          fun ntodo (sub, nalt, prf) = prove mat sub nhis1 (if cut3 then alt else nalt) (todo, prf) rest
           val nhist = (lit :: path, lem, lim - 1)
           val nprf  = (fst sub, Res (lit, path, lem)) :: prf
-          fun nalt () = extend sub lit rest hist alt (todo, prf) et
-      in  prove sub2 nhist nalt (ntodo, nprf) cla1
+          fun nalt () = extend mat sub lit rest hist alt (todo, prf) et
+      in  prove mat sub2 nhist nalt (ntodo, nprf) cla1
       end
-    | NONE => extend sub lit rest hist alt (todo, prf) et)
+    | NONE => extend mat sub lit rest hist alt (todo, prf) et)
   | [] => alt ()
 
-fun prove_exception lim = prove
+fun prove_exception mat lim = prove mat
   (Subst.emptySubst, 0)
   ([], [], lim)
   (fn () => ())
   ((fn (_,_,prf) => raise (Solved prf)), [])
   [(Matrix.hashek,[])]
 
-fun prove_some lim = (prove_exception lim; NONE) handle (Solved prf) => SOME prf
+fun prove_some mat lim = (prove_exception mat lim; NONE) handle (Solved prf) => SOME prf
 
 end
