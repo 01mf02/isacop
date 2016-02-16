@@ -93,24 +93,30 @@ fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cte
       val _ = pretty_clauses cls |> Pretty.writeln
       val mat = Matrix.empty 10000
       val _ = Matrix.insert_clauses mat cls
+      (* val _ = PolyML.makestring mat |> writeln; *)
       val _ = (leanCoP.prove_exception mat 10; writeln "Sorry, no proof found.")
   in all_tac
   end
 
-fun raw_isacop ctxt =
-  (* introduce hashek into goal *)
-  resolve_tac ctxt @{thms hashekE} THEN'
-  K (print_tac ctxt "Initial proof state") THEN'
-  negOfGoal_tac ctxt THEN'
-  (* K (print_tac ctxt "After negation") THEN' *)
+fun clausify_tac ctxt =
   simp_tac_only ctxt @{thms meta_simps IFOL_simps cla_simps} THEN'
   (* K (print_tac ctxt "After simplification") THEN' *)
   simp_tac_only ctxt @{thms prenex_ex prenex_all} THEN'
   (* K (print_tac ctxt "After prenexing") THEN' *)
   simp_tac_only ctxt @{thms precnf_simps} THEN'
   simp_tac_only ctxt @{thms cnf_simps} THEN'
-  simp_tac_only ctxt @{thms conj_simps disj_simps} THEN'
-  K (print_tac ctxt "After clausification") THEN'
+  simp_tac_only ctxt @{thms conj_simps disj_simps}
+
+fun prepare_tac ctxt =
+  (* introduce hashek into goal *)
+  resolve_tac ctxt @{thms hashekE} THEN'
+  K (print_tac ctxt "Initial proof state") THEN'
+  negOfGoal_tac ctxt THEN'
+  (* K (print_tac ctxt "After negation") THEN' *)
+  clausify_tac ctxt THEN'
+  K (print_tac ctxt "After clausification")
+
+fun raw_isacop ctxt =
   Subgoal.FOCUS isacop_focus ctxt THEN'
   K all_tac
 
@@ -119,7 +125,7 @@ fun isacop_tac (ctxt:Proof.context) lim =
     val start = Timing.start ();
     val lim = Config.get ctxt depth_limit;
   in
-    Object_Logic.atomize_prems_tac ctxt THEN' raw_isacop ctxt
+    Object_Logic.atomize_prems_tac ctxt THEN' prepare_tac ctxt THEN' raw_isacop ctxt
   end;
 
 val _ =

@@ -71,6 +71,9 @@ ML_file "isacop.ML"
 declare [[ML_print_depth = 50]]
 ML {* @{term "\<forall>x. \<exists>y. f(x, y) \<and> Q(r)"} *}
 
+lemma "\<not>b(x) \<or> \<not>hashek \<Longrightarrow> \<forall>y. (b(y)) \<Longrightarrow> False"
+apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
+
 lemma "\<forall>x y. P(x,y) \<Longrightarrow> \<exists>a. \<forall>b. P(a, b)"
 apply (isacop 1)
 
