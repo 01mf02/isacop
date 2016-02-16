@@ -52,6 +52,29 @@ fun app_rest _ _ [] = ()
 end
 
 
+structure Substitution =
+struct
+
+open FTerm
+
+type subst_array = term option Array.array
+type subst_list = variable list
+type environment = subst_list
+
+val subst : subst_array = Array.array (1000000, NONE)
+val sh : subst_list Unsynchronized.ref = Unsynchronized.ref []
+
+fun mapSubst n s x = case Array.sub (subst, x) of NONE => n | SOME t => s t
+
+fun addSubst x t = (Array.update (subst, x, SOME t); sh := x :: !sh)
+
+fun restore_subst env =
+  if (!sh) = env then ()
+  else (Array.update (subst, List.hd (!sh), NONE); sh := List.tl (!sh); restore_subst env)
+
+end
+
+
 signature UNIFICATION =
 sig
 
@@ -86,33 +109,22 @@ type subst_array = term option Array.array
 type subst_list = variable list
 type environment = subst_list
 
-val subst : subst_array = Array.array (1000000, NONE)
-val sh : subst_list Unsynchronized.ref = Unsynchronized.ref []
-
 exception Unify
-
-fun mapSubst n s x = case Array.sub (subst, x) of NONE => n | SOME t => s t
 
 local
   (* isTriv x t if variable x is contained in the term t *)
-  fun isTriv x (V y) = x = y orelse mapSubst false (fn t => isTriv x t) x
+  fun isTriv x (V y) = x = y orelse Substitution.mapSubst false (fn t => isTriv x t) x
     | isTriv x (A (_, a)) = if List.exists (isTriv x) a then true else raise Unify
 in
   fun addSubst x t =
-    if isTriv x t then ()
-    else (Array.update (subst, x, SOME t); sh := x :: !sh)
+    if isTriv x t then () else Substitution.addSubst x t
 end
 
-fun restore_subst env =
-  if (!sh) = env then ()
-  else (Array.update (subst, List.hd (!sh), NONE); sh := List.tl (!sh); restore_subst env)
-
-
 fun unify (A(f, fa), A(g, ga)) = if f <> g then raise Unify else ListPair.appEq unify (fa, ga)
-  | unify (V(x), tm) = mapSubst (addSubst x tm) (fn t => unify (tm, t)) x
+  | unify (V(x), tm) = Substitution.mapSubst (addSubst x tm) (fn t => unify (tm, t)) x
   | unify (tm, V(x)) = unify (V(x), tm)
 
-fun unifyList env l1 l2 = (restore_subst env; ListPair.appEq unify (l1, l2); !sh)
+fun unifyList env l1 l2 = (Substitution.restore_subst env; ListPair.appEq unify (l1, l2); !Substitution.sh)
 
 fun unifyLit env (h1, l1) (h2, l2) =
   if h1 <> h2 then raise Unify else unifyList env l1 l2
@@ -125,26 +137,26 @@ in
       (A(f,fa), A(g,ga)) => if f <> g then raise Unify else ListPair.appEq (unify_rename off) (fa, ga)
     | (_, V x) =>
         let val x = x + off
-        in  mapSubst (addSubst x t1) (fn t => unify_rename 0 (t1, t)) x
+        in  Substitution.mapSubst (addSubst x t1) (fn t => unify_rename 0 (t1, t)) x
         end
-    | (V x, _) => mapSubst (addSubst x (bump_small off t2)) (fn t => unify_rename off (t, t2)) x
+    | (V x, _) => Substitution.mapSubst (addSubst x (bump_small off t2)) (fn t => unify_rename off (t, t2)) x
 
   fun unify_rename_subst off l1 l2 env list =
-    (restore_subst env;
+    (Substitution.restore_subst env;
     ListPair.appEq (unify_rename off) (l1, l2);
-    (!sh, List.map (fn (p,l) => (p,List.map (bump_small off) l)) list))
+    (!Substitution.sh, List.map (fn (p,l) => (p,List.map (bump_small off) l)) list))
 end
 
 local
-  fun varEqTerm x (V y) = x = y orelse mapSubst false (varEqTerm x) y
+  fun varEqTerm x (V y) = x = y orelse Substitution.mapSubst false (varEqTerm x) y
     | varEqTerm _ (A _) = false
 
   fun eqTerm (tm1, tm2) = case (tm1,tm2) of
       (A(f,fargs),A(g,gargs)) => (f = g andalso ListPair.allEq eqTerm (fargs, gargs))
-    | (V(x),_) => mapSubst (varEqTerm x tm2) (fn t => eqTerm (tm1, t)) x
+    | (V(x),_) => Substitution.mapSubst (varEqTerm x tm2) (fn t => eqTerm (tm1, t)) x
     | (_,V(_)) => eqTerm (tm2, tm1)
 in
-  fun eqLit env (p,pa) (q,qa) = p = q andalso (restore_subst env; ListPair.allEq eqTerm (pa, qa))
+  fun eqLit env (p,pa) (q,qa) = p = q andalso (Substitution.restore_subst env; ListPair.allEq eqTerm (pa, qa))
 end
 
 val emptySub = []
