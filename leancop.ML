@@ -51,6 +51,95 @@ fun app_rest _ _ [] = ()
 
 end
 
+signature SUBST =
+sig
+
+type substitution
+val mapSubst : 'a -> (FTerm.term -> 'a) -> substitution -> FTerm.variable -> 'a
+val addSubst : substitution -> FTerm.variable -> FTerm.term -> substitution
+
+end
+
+structure Subst : SUBST =
+struct
+
+type substitution = (FTerm.term option Array.array * FTerm.variable list)
+
+fun mapSubst n s (subst, _) x = case Array.sub (subst, x) of NONE => n | SOME t => s t
+
+fun addSubst (subst, dom) x t = (Array.update (subst, x, SOME t); (subst, x :: dom))
+
+fun adaptSubst (subst, dom) dom' =
+  if dom = dom' then ()
+  else (Array.update (subst, List.hd dom, NONE); adaptSubst (subst, List.tl dom) dom')
+
+end
+
+structure Unif =
+struct
+
+open FTerm
+
+exception Unify
+
+fun isTriv sub x (V y) = x = y orelse Subst.mapSubst false (fn t => isTriv sub x t) sub x
+  | isTriv sub x (A (_, a)) = if List.exists (isTriv sub x) a then true else raise Unify
+
+fun addSubst sub x t = if isTriv sub x t then sub else Subst.addSubst sub x t
+
+fun unifyTerm (A(f, fa), A(g, ga), sub) = if f <> g then raise Unify else unifyTerms sub (fa, ga)
+  | unifyTerm (V(x), tm, sub) = Subst.mapSubst (addSubst sub x tm) (fn t => unifyTerm (tm, t, sub)) sub x
+  | unifyTerm (tm, V(x), sub) = unifyTerm (V(x), tm, sub)
+and unifyTerms sub = ListPair.foldlEq unifyTerm sub
+
+fun unifyLit sub (h1, l1) (h2, l2) = if h1 <> h2 then raise Unify else unifyTerms sub (l1, l2)
+
+fun offsetTermVars off = mapVars (fn v => v + off)
+fun offsetLitVars off (p, l) = (p, List.map (offsetTermVars off) l)
+
+(* Unification with renaming of the second argument *)
+fun unify_rename off (t1, t2, sub) = case (t1, t2) of
+    (A(f,fa), A(g,ga)) => if f <> g then raise Unify else unify_rename_list off sub (fa, ga)
+  | (_, V x) =>
+      let val x' = x + off
+      in  Subst.mapSubst (addSubst sub x' t1) (fn t => unify_rename 0 (t1, t, sub)) sub x'
+      end
+  | (V x, _) => Subst.mapSubst (addSubst sub x (offsetTermVars off t2)) (fn t => unify_rename off (t, t2, sub)) sub x
+and unify_rename_list off = ListPair.foldlEq (unify_rename off)
+
+
+fun unify_rename_subst off sub (l1, l2) list =
+  (unify_rename_list off sub (l1, l2), List.map (offsetLitVars off) list)
+
+fun varEqTerm sub x (V y) = x = y orelse Subst.mapSubst false (varEqTerm sub x) sub y
+  | varEqTerm _ _ (A _) = false
+
+fun eqTerm sub (tm1, tm2) = case (tm1,tm2) of
+    (A(f,fa),A(g,ga)) => (f = g andalso eqTermList sub (fa, ga))
+  | (V(x),_) => Subst.mapSubst (varEqTerm sub x tm2) (fn t => eqTerm sub (tm1, t)) sub x
+  | (_,V(_)) => eqTerm sub (tm2, tm1)
+and eqTermList sub = ListPair.allEq (eqTerm sub)
+
+fun eqLit sub (p,pa) (q,qa) = p = q andalso eqTermList sub (pa, qa)
+
+fun unify_rename1 (sub, off) args1 (args2, rest, 0) = ((unifyTerms sub (args1, args2), off), rest)
+  | unify_rename1 (sub, off) args1 (args2, rest, vars) =
+    let val (sub', rest) = unify_rename_subst off sub (args1, args2) rest
+    in  ((sub', off + vars), rest)
+    end
+
+fun wrap x = SOME x handle Unify => NONE
+
+(* TODO: Use adaptSubst here! *)
+
+fun eq (sub, _) l1 l2 = eqLit sub l1 l2
+
+fun unify (sub, off) l1 l2 = wrap (unifyLit sub l1 l2, off)
+
+fun unify_rename sub args1 rest = wrap (unify_rename1 sub args1 rest)
+
+end
+
 
 structure Substitution =
 struct
