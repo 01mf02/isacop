@@ -55,23 +55,43 @@ signature SUBST =
 sig
 
 type substitution
+type domain
 val mapSubst : 'a -> (FTerm.term -> 'a) -> substitution -> FTerm.variable -> 'a
 val addSubst : substitution -> FTerm.variable -> FTerm.term -> substitution
+val adaptSubst : substitution -> domain -> substitution
 
 end
 
 structure Subst : SUBST =
 struct
 
-type substitution = (FTerm.term option Array.array * FTerm.variable list)
+type domain = FTerm.variable list
+type substitution = (FTerm.term option Array.array * domain)
 
 fun mapSubst n s (subst, _) x = case Array.sub (subst, x) of NONE => n | SOME t => s t
 
 fun addSubst (subst, dom) x t = (Array.update (subst, x, SOME t); (subst, x :: dom))
 
 fun adaptSubst (subst, dom) dom' =
-  if dom = dom' then ()
+  if dom = dom' then (subst, dom)
   else (Array.update (subst, List.hd dom, NONE); adaptSubst (subst, List.tl dom) dom')
+
+end
+
+structure Subst2 =
+struct
+
+type substitution = (FTerm.variable * FTerm.term) list
+
+fun getSubst subst x = case List.find (fn (x', _) => x = x') subst of
+    NONE => NONE
+  | SOME (_, t) => SOME t
+
+fun mapSubst n s subst x = case getSubst subst x of NONE => n | SOME t => s t
+
+fun addSubst subst x t = (x, t) :: subst
+
+val emptySub = []
 
 end
 
@@ -82,13 +102,13 @@ open FTerm
 
 exception Unify
 
-fun isTriv sub x (V y) = x = y orelse Subst.mapSubst false (fn t => isTriv sub x t) sub x
+fun isTriv sub x (V y) = x = y orelse Subst2.mapSubst false (fn t => isTriv sub x t) sub x
   | isTriv sub x (A (_, a)) = if List.exists (isTriv sub x) a then true else raise Unify
 
-fun addSubst sub x t = if isTriv sub x t then sub else Subst.addSubst sub x t
+fun addSubst sub x t = if isTriv sub x t then sub else Subst2.addSubst sub x t
 
 fun unifyTerm (A(f, fa), A(g, ga), sub) = if f <> g then raise Unify else unifyTerms sub (fa, ga)
-  | unifyTerm (V(x), tm, sub) = Subst.mapSubst (addSubst sub x tm) (fn t => unifyTerm (tm, t, sub)) sub x
+  | unifyTerm (V(x), tm, sub) = Subst2.mapSubst (addSubst sub x tm) (fn t => unifyTerm (tm, t, sub)) sub x
   | unifyTerm (tm, V(x), sub) = unifyTerm (V(x), tm, sub)
 and unifyTerms sub = ListPair.foldlEq unifyTerm sub
 
@@ -102,9 +122,9 @@ fun unify_rename off (t1, t2, sub) = case (t1, t2) of
     (A(f,fa), A(g,ga)) => if f <> g then raise Unify else unify_rename_list off sub (fa, ga)
   | (_, V x) =>
       let val x' = x + off
-      in  Subst.mapSubst (addSubst sub x' t1) (fn t => unify_rename 0 (t1, t, sub)) sub x'
+      in  Subst2.mapSubst (addSubst sub x' t1) (fn t => unify_rename 0 (t1, t, sub)) sub x'
       end
-  | (V x, _) => Subst.mapSubst (addSubst sub x (offsetTermVars off t2)) (fn t => unify_rename off (t, t2, sub)) sub x
+  | (V x, _) => Subst2.mapSubst (addSubst sub x (offsetTermVars off t2)) (fn t => unify_rename off (t, t2, sub)) sub x
 and unify_rename_list off = ListPair.foldlEq (unify_rename off)
 
 
@@ -122,21 +142,19 @@ and eqTermList sub = ListPair.allEq (eqTerm sub)
 
 fun eqLit sub (p,pa) (q,qa) = p = q andalso eqTermList sub (pa, qa)
 
-fun unify_rename1 (sub, off) args1 (args2, rest, 0) = ((unifyTerms sub (args1, args2), off), rest)
-  | unify_rename1 (sub, off) args1 (args2, rest, vars) =
+fun unify_rename1 sub off args1 (args2, rest, 0) = ((unifyTerms sub (args1, args2), off), rest)
+  | unify_rename1 sub off args1 (args2, rest, vars) =
     let val (sub', rest) = unify_rename_subst off sub (args1, args2) rest
     in  ((sub', off + vars), rest)
     end
 
 fun wrap x = SOME x handle Unify => NONE
 
-(* TODO: Use adaptSubst here! *)
-
 fun eq (sub, _) l1 l2 = eqLit sub l1 l2
 
 fun unify (sub, off) l1 l2 = wrap (unifyLit sub l1 l2, off)
 
-fun unify_rename sub args1 rest = wrap (unify_rename1 sub args1 rest)
+fun unify_rename (sub, off) args1 rest = wrap (unify_rename1 sub off args1 rest)
 
 end
 
