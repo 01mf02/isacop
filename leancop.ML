@@ -212,13 +212,18 @@ end
 signature LEANCOP =
 sig
 
-datatype proof =
+datatype proof_step =
     Lem of FTerm.lit
   | Pat of FTerm.lit
   | Res of (FTerm.lit * FTerm.clause * FTerm.clause)
+type proof = (Subst.substitution * proof_step) list
 
+type history
+type 'a todo_fun
+
+val prove : Matrix.matrix -> Unif.subst_offset -> history -> (unit -> 'a) -> 'a todo_fun -> proof -> FTerm.clause -> 'a
 val prove_exception : Matrix.matrix -> int -> unit
-val prove_some : Matrix.matrix -> int -> (Subst.substitution * proof) list option
+val prove_some : Matrix.matrix -> int -> (Subst.substitution * proof_step) list option
 
 end
 
@@ -229,60 +234,66 @@ val cut1 = true
 val cut2 = true
 val cut3 = true
 
-datatype proof =
+datatype proof_step =
     Lem of FTerm.lit
   | Pat of FTerm.lit
   | Res of (FTerm.lit * FTerm.clause * FTerm.clause)
-exception Solved of (Subst.substitution * proof) list
+type proof = (Subst.substitution * proof_step) list
 
-fun add_proof (sub, _) step prf = (sub, step) :: prf
+exception Solved of proof
 
+type path = FTerm.clause
+type history = path * FTerm.clause * int
+type 'a todo_fun = Unif.subst_offset * (unit -> 'a) * proof -> 'a
 
-fun prove mat sub (hist as (path, lem, _)) alt (todo, prf) = fn
+fun add_step (sub, _) step prf = (sub, step) :: prf
+
+fun prove mat sub (hist as (path, lem, _)) alt todo prf = fn
     [] => todo (sub, alt, prf)
-  | (cl as lit1 :: rest) =>
-     let val cont = (fn () => reduce mat sub lit1 rest hist alt (todo, prf) (FTerm.negateLit lit1) path)
+  | (cl as lit :: rest) =>
+     let val cont = (fn () => reduce mat sub lit rest hist alt todo prf (FTerm.negateLit lit) path)
          val nalt = if cut1 then alt else cont
+         val _ = TextIO.print ("prove cl: " ^ PolyML.makestring cl ^ "\n")
      in  if List.exists (fn x => List.exists (Unif.eq sub x) path) cl
            then alt ()
-         else if List.exists (Unif.eq sub lit1) lem
-           then prove mat sub hist nalt (todo, add_proof sub (Lem lit1) prf) rest
+         else if List.exists (Unif.eq sub lit) lem
+           then prove mat sub hist nalt todo (add_step sub (Lem lit) prf) rest
          else
-           reduce mat sub lit1 rest hist alt (todo, prf) (FTerm.negateLit lit1) path
+           reduce mat sub lit rest hist alt todo prf (FTerm.negateLit lit) path
      end
-and reduce mat sub lit1 rest hist alt (todo, prf) neglit = fn
+and reduce mat sub lit rest hist alt todo prf neglit = (TextIO.print "reduce\n"; fn
     plit :: pt => (case Unif.unify sub neglit plit of
         SOME sub2 =>
-          let val nprf = add_proof sub (Pat lit1) prf
-              fun cont () = reduce mat sub lit1 rest hist alt (todo, prf) neglit pt
+          let val nprf = add_step sub (Pat lit) prf
+              fun cont () = reduce mat sub lit rest hist alt todo prf neglit pt
               val nalt = if cut2 then alt else cont
-          in prove mat sub2 hist nalt (todo, nprf) rest
+          in prove mat sub2 hist nalt todo nprf rest
           end
-      | NONE => reduce mat sub lit1 rest hist alt (todo, prf) neglit pt)
-  | [] =>
-      let val dbs = Matrix.entries mat neglit
-      in  extend mat sub lit1 rest hist alt (todo, prf) dbs
-      end
-and extend mat sub lit rest (hist as (path, lem, lim)) alt (todo, prf) = fn
+      | NONE => reduce mat sub lit rest hist alt todo prf neglit pt)
+  | [] => extend mat sub lit rest hist alt todo prf (Matrix.entries mat neglit))
+and extend mat sub lit rest (hist as (path, lem, lim)) alt todo prf = (TextIO.print "extend\n";  fn
     ((eh as (_,_,vars)) :: et) =>
     (case (if lim <= 0 andalso vars > 0 then NONE else Unif.unify_contra sub lit eh) of
       SOME (sub2, cla1) =>
       let val nhis1 = (path, lit :: lem, lim)
-          fun ntodo (sub, nalt, prf) = prove mat sub nhis1 (if cut3 then alt else nalt) (todo, prf) rest
+          fun ntodo (sub, nalt, prf) = prove mat sub nhis1 (if cut3 then alt else nalt) todo prf rest
           val nhist = (lit :: path, lem, lim - 1)
-          val nprf  = add_proof sub (Res (lit, path, lem)) prf
-          fun nalt () = extend mat sub lit rest hist alt (todo, prf) et
-      in  prove mat sub2 nhist nalt (ntodo, nprf) cla1
+          val nprf  = add_step sub (Res (lit, path, lem)) prf
+          fun nalt () = extend mat sub lit rest hist alt todo prf et
+      in  prove mat sub2 nhist nalt ntodo nprf cla1
       end
-    | NONE => extend mat sub lit rest hist alt (todo, prf) et)
-  | [] => alt ()
+    | NONE => extend mat sub lit rest hist alt todo prf et)
+  | [] => alt ())
 
-fun prove_exception mat lim = prove mat
-  (Subst.emptySubst, 0)
-  ([], [], lim)
-  (fn () => ())
-  ((fn (_,_,prf) => raise (Solved prf)), [])
-  [(Matrix.hashek,[])]
+fun prove_exception mat lim =
+  let val sub = (Subst.emptySubst, 0)
+      val hist = ([], [], lim)
+      fun alt () = ()
+      fun todo (_, _, prf) = raise (Solved prf)
+      val prf = []
+      val cla = [(Matrix.hashek, [])]
+  in prove mat sub hist alt todo prf cla
+  end
 
 fun prove_some mat lim = (prove_exception mat lim; NONE) handle (Solved prf) => SOME prf
 
