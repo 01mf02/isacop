@@ -78,7 +78,18 @@ fun adaptSubst (subst, dom) dom' =
 
 end
 
-structure Subst2 =
+signature SUBST2 =
+sig
+
+type substitution
+val mapSubst : 'a -> (FTerm.term -> 'a) -> substitution -> FTerm.variable -> 'a
+val addSubst : substitution -> FTerm.variable -> FTerm.term -> substitution
+val emptySubst : substitution
+
+end
+
+
+structure Subst2 : SUBST2 =
 struct
 
 type substitution = (FTerm.variable * FTerm.term) list
@@ -91,7 +102,7 @@ fun mapSubst n s subst x = case getSubst subst x of NONE => n | SOME t => s t
 
 fun addSubst subst x t = (x, t) :: subst
 
-val emptySub = []
+val emptySubst = []
 
 end
 
@@ -419,7 +430,7 @@ and extend sub lit1 rest (hist as (path, lem, lim)) alt (todo, prf) = fn
   | [] => alt ()
 
 fun prove_exception lim = prove
-  (Subst2.emptySub, 0)
+  (Subst2.emptySubst, 0)
   ([], [], lim)
   (fn () => ())
   ((fn (_,_,prf) => raise (Solved prf)), [])
