@@ -287,20 +287,23 @@ and reduce mat sub lit rest hist alt todo prf path =
     | NONE => extend mat sub lit rest hist alt todo prf (Matrix.entries mat neglit)
     end
 and extend mat sub lit rest (hist as (path, lem, lim)) alt todo prf entries =
-    (writeln ("extend with entries = " ^ PolyML.makestring entries);
-    case entries of
-      (eh as (_, _, vars)) :: et =>
-        (case (if lim <= 0 andalso vars > 0 then NONE else Unif.unify_contra sub lit eh) of
-        SOME (sub2, cla1) =>
-          let val nhis1 = (path, lit :: lem, lim)
-              val nhist = (lit :: path, lem, lim - 1)
-              fun ntodo (sub, nalt, prf) = prove mat sub nhis1 (if cut3 then alt else nalt) todo prf rest
-              val nprf  = add_step sub (Res (lit, path, lem)) prf
-              fun nalt () = extend mat sub lit rest hist alt todo prf et
-          in  prove mat sub2 nhist nalt ntodo nprf cla1
+    let fun extensible (entry as (_, _, vars)) =
+            if lim <= 0 andalso vars > 0 then NONE
+            else Unif.unify_contra sub lit entry
+    in
+    writeln ("extend with entries = " ^ PolyML.makestring entries);
+    case findSome extensible entries of
+      (* we can unify literal with some matrix entry *)
+      SOME (_, (nsub, cla1), et) =>
+          let val hist1 = (lit :: path, lem, lim - 1)
+              val hist2 = (path, lit :: lem, lim)
+              fun todo1 (sub, alt2, prf) = prove mat sub hist2 (if cut3 then alt else alt2) todo prf rest
+              val prf1  = add_step sub (Res (lit, path, lem)) prf
+              fun alt1 () = extend mat sub lit rest hist alt todo prf et
+          in  prove mat nsub hist1 alt1 todo1 prf1 cla1
           end
-        | NONE => extend mat sub lit rest hist alt todo prf et)
-      | [] => alt ())
+    | NONE => alt ()
+    end
 
 fun prove_exception mat lim =
   let val sub = (Subst.emptySubst, 0)
