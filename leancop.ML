@@ -9,8 +9,10 @@ type clause
 type clauses
 
 val negateLit : lit -> lit
-val termVars : term -> variable list
 val mapVars : (variable -> variable) -> term -> term
+val termVars : term -> variable list
+val litVars : lit -> variable list
+val clauseVars : clause -> variable list
 
 end
 
@@ -26,11 +28,15 @@ type clauses = clause list
 
 fun negateLit (i, l) = (~i, l)
 
+fun mapVars f (V x) = V (f x)
+  | mapVars f (A (g, args)) = A(g, map (mapVars f) args)
+
 fun termVars (V x) = [x]
   | termVars (A (_, args)) = List.concat (List.map termVars args)
 
-fun mapVars f (V x) = V (f x)
-  | mapVars f (A (g, args)) = A(g, map (mapVars f) args)
+fun litVars (_, ts) = List.concat (List.map termVars ts)
+
+fun clauseVars cl = List.concat (List.map litVars cl)
 
 end
 
@@ -65,11 +71,7 @@ fun nat_of_int i = if i >= 0 then 2*i else ~(2*i + 1)
 val hashek = 1
 val hashek_lit = (~hashek, [])
 
-
-fun litVars (_, ts) = List.concat (List.map FTerm.termVars ts)
-fun clauseVars cl = List.concat (List.map litVars cl)
-
-fun clauseMaxVar cl = 1 + List.foldl Int.max (~1) (clauseVars cl)
+fun clauseMaxVar cl = 1 + List.foldl Int.max (~1) (FTerm.clauseVars cl)
 
 fun clause_prefix_hash cl =
   if not goal_directed andalso
@@ -152,8 +154,8 @@ type subst_offset = Subst.substitution * int
 
 exception Unify
 
-fun isTriv sub x (V y) = x = y orelse Subst.mapSubst false (fn t => isTriv sub x t) sub x
-  | isTriv sub x (A (_, a)) = if List.exists (isTriv sub x) a then true else raise Unify
+fun isTriv sub x (V y) = x = y orelse Subst.mapSubst false (fn t => isTriv sub x t) sub y
+  | isTriv sub x (A (_, a)) = if List.exists (isTriv sub x) a then raise Unify else false
 
 fun addSubst sub x t = if isTriv sub x t then sub else Subst.addSubst sub x t
 
@@ -170,29 +172,30 @@ fun offsetLitVars off (p, l) = (p, List.map (offsetTermVars off) l)
 (* Unification with renaming of the second argument *)
 fun unify_rename off (t1, t2, sub) = case (t1, t2) of
     (A(f,fa), A(g,ga)) => if f <> g then raise Unify else unify_rename_list off sub (fa, ga)
-  | (_, V x) =>
+  | (t1, V x) =>
       let val x' = x + off
       in  Subst.mapSubst (addSubst sub x' t1) (fn t => unify_rename 0 (t1, t, sub)) sub x'
       end
-  | (V x, _) => Subst.mapSubst (addSubst sub x (offsetTermVars off t2))
+  | (V x, t2) => Subst.mapSubst (addSubst sub x (offsetTermVars off t2))
       (fn t => unify_rename off (t, t2, sub)) sub x
 and unify_rename_list off = ListPair.foldlEq (unify_rename off)
 
-fun unify_contrapos sub off (_, args1) (args2, rest, 0) =
-      ((unifyTerms sub (args1, args2), off), rest)
-  | unify_contrapos sub off (_, args1) (args2, rest, vars) =
-    let val sub' = unify_rename_list off sub (args1, args2)
-        val rest' = List.map (offsetLitVars off) rest
-    in  ((sub', off + vars), rest')
-    end
+fun unify_contrapos sub off (_, args1) (args2, rest, vars) =
+    if vars = 0 then ((unifyTerms sub (args1, args2), off), rest)
+    else
+      let val sub' = unify_rename_list off sub (args1, args2)
+          val rest' = List.map (offsetLitVars off) rest
+      in  ((sub', off + vars), rest')
+      end
 
-fun varEqTerm sub x (V y) = x = y orelse Subst.mapSubst false (varEqTerm sub x) sub y
-  | varEqTerm _ _ (A _) = false
+(* True if variable is equivalent to another variable under substitution. *)
+fun eqVar sub x (V y) = x = y orelse Subst.mapSubst false (eqVar sub x) sub y
+  | eqVar _   _ (A _) = false
 
-fun eqTerm sub (tm1, tm2) = case (tm1,tm2) of
-    (A(f,fa),A(g,ga)) => (f = g andalso eqTermList sub (fa, ga))
-  | (V(x),_) => Subst.mapSubst (varEqTerm sub x tm2) (fn t => eqTerm sub (tm1, t)) sub x
-  | (_,V(_)) => eqTerm sub (tm2, tm1)
+fun eqTerm sub (t1, t2) = case (t1, t2) of
+    (A(f, fa), A(g, ga)) => f = g andalso eqTermList sub (fa, ga)
+  | (V x, t2) => Subst.mapSubst (eqVar sub x t2) (fn t => eqTerm sub (t, t2)) sub x
+  | (t1, V _) => eqTerm sub (t2, t1)
 and eqTermList sub = ListPair.allEq (eqTerm sub)
 
 fun eqLit sub (p, pa) (q, qa) = p = q andalso eqTermList sub (pa, qa)
@@ -249,7 +252,7 @@ type 'a todo_fun = Unif.subst_offset * (unit -> 'a) * proof -> 'a
 fun add_step (sub, _) step prf = (sub, step) :: prf
 
 fun prove mat sub (hist as (path, lem, _)) alt todo prf cla =
-  (TextIO.print ("prove with cla = " ^ PolyML.makestring cla ^ "\n");
+  (writeln ("prove with cla = " ^ PolyML.makestring cla);
   case cla of
     [] => todo (sub, alt, prf)
   | (cl as lit :: rest) =>
@@ -264,7 +267,7 @@ fun prove mat sub (hist as (path, lem, _)) alt todo prf cla =
      end)
 and reduce mat sub lit rest hist alt todo prf path =
     let val neglit = FTerm.negateLit lit
-    in  TextIO.print ("reduce with lit = " ^ PolyML.makestring lit ^ " and path = " ^ PolyML.makestring path ^ "\n");
+    in  writeln ("reduce with lit = " ^ PolyML.makestring lit ^ " and path = " ^ PolyML.makestring path);
     case path of
       plit :: pt => (case Unif.unify sub neglit plit of
         SOME sub2 =>
@@ -277,7 +280,7 @@ and reduce mat sub lit rest hist alt todo prf path =
       | [] => extend mat sub lit rest hist alt todo prf (Matrix.entries mat neglit)
     end
 and extend mat sub lit rest (hist as (path, lem, lim)) alt todo prf entries =
-    (TextIO.print ("extend with entries = " ^ PolyML.makestring entries ^ "\n");
+    (writeln ("extend with entries = " ^ PolyML.makestring entries);
     case entries of
       (eh as (_, _, vars)) :: et =>
         (case (if lim <= 0 andalso vars > 0 then NONE else Unif.unify_contra sub lit eh) of

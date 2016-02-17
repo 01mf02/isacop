@@ -68,6 +68,27 @@ ML_file "intbimap.ML"
 ML_file "isacop.ML"
 
 
+section {* Tests *}
+
+ML_val {*
+open FTerm;
+Unif.unify_contra ([], 0) (0, [V 0]) ([V 1], [], 1);
+
+val clauses = [[(~1, []), (~2, [A (3, [])])], [(2, [V 0])]];
+
+@{assert} (Unif.unify ([], 0) (0, [V 0]) (0, [A (0, [])]) = SOME ([(0, A (0, []))], 0));
+@{assert} (Unif.unify ([(0, A (2, []))], 0) (0, [V 0]) (0, [A (1, [])]) = NONE);
+
+@{assert} (Unif.unify_contra ([], 0) (0, []) ([], [], 0) = SOME (([], 0), []));
+
+(*val mat = Matrix.empty 6;
+Matrix.insert_clauses mat clauses;
+
+writeln "Starting leanCoP ...";
+leanCoP.prove_exception mat 10;*)
+*}
+
+
 declare [[ML_print_depth = 50]]
 ML {* @{term "\<forall>x. \<exists>y. f(x, y) \<and> Q(r)"} *}
 
