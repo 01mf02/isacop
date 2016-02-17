@@ -92,6 +92,11 @@ leanCoP.prove_exception mat 10;*)
 declare [[ML_print_depth = 50]]
 ML {* @{term "\<forall>x. \<exists>y. f(x, y) \<and> Q(r)"} *}
 
+(* Example of the Lemma rule *)
+lemma "\<not>hashek \<or> p \<or> q \<Longrightarrow> \<not>p \<or> r \<Longrightarrow> \<not>r \<Longrightarrow> \<not>q \<or> p \<Longrightarrow> False"
+apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
+
+(* Example of the Path rule *)
 lemma "\<not>hashek \<or> p \<Longrightarrow> \<not>p \<or> q \<Longrightarrow> \<not>q \<or> \<not>p \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
 
