@@ -92,6 +92,9 @@ leanCoP.prove_exception mat 10;*)
 declare [[ML_print_depth = 50]]
 ML {* @{term "\<forall>x. \<exists>y. f(x, y) \<and> Q(r)"} *}
 
+lemma "\<not>hashek \<or> p \<Longrightarrow> \<not>p \<or> q \<Longrightarrow> \<not>q \<or> \<not>p \<Longrightarrow> False"
+apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
+
 lemma "\<not>b(x) \<or> \<not>hashek \<Longrightarrow> \<forall>y. (b(y)) \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
 
