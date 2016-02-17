@@ -251,6 +251,10 @@ type 'a todo_fun = Unif.subst_offset * (unit -> 'a) * proof -> 'a
 
 fun add_step (sub, _) step prf = (sub, step) :: prf
 
+(* Return first element that returns SOME plus the rest of the list, else NONE. *)
+fun findSome f (x :: xs) = (case f x of SOME y => SOME (x, y, xs) | NONE => findSome f xs)
+  | findSome _ [] = NONE
+
 fun prove mat sub (hist as (path, lem, _)) alt todo prf cla =
   (writeln ("prove with cla = " ^ PolyML.makestring cla);
   case cla of
@@ -258,8 +262,10 @@ fun prove mat sub (hist as (path, lem, _)) alt todo prf cla =
   | (cl as lit :: rest) =>
      let val cont = (fn () => reduce mat sub lit rest hist alt todo prf path)
          val nalt = if cut1 then alt else cont
+         (* regularity check: literal should not already be on path *)
      in  if List.exists (fn x => List.exists (Unif.eq sub x) path) cl
            then alt ()
+         (* if literal is among the lemmas, remove it and treat rest clause *)
          else if List.exists (Unif.eq sub lit) lem
            then prove mat sub hist nalt todo (add_step sub (Lem lit) prf) rest
          else
@@ -267,17 +273,18 @@ fun prove mat sub (hist as (path, lem, _)) alt todo prf cla =
      end)
 and reduce mat sub lit rest hist alt todo prf path =
     let val neglit = FTerm.negateLit lit
-    in  writeln ("reduce with lit = " ^ PolyML.makestring lit ^ " and path = " ^ PolyML.makestring path);
-    case path of
-      plit :: pt => (case Unif.unify sub neglit plit of
-        SOME sub2 =>
-          let val nprf = add_step sub (Pat lit) prf
-              fun cont () = reduce mat sub lit rest hist alt todo prf pt
-              val nalt = if cut2 then alt else cont
-          in prove mat sub2 hist nalt todo nprf rest
-          end
-        | NONE => reduce mat sub lit rest hist alt todo prf pt)
-      | [] => extend mat sub lit rest hist alt todo prf (Matrix.entries mat neglit)
+    in
+    writeln ("reduce with lit = " ^ PolyML.makestring lit ^ " and path = " ^ PolyML.makestring path);
+    case findSome (Unif.unify sub neglit) path of
+      (* negated literal is on the path *)
+      SOME (_, nsub, pt) =>
+        let val nprf = add_step sub (Pat lit) prf
+            (* possibly try to reduce with other literal on path later *)
+            fun cont () = reduce mat sub lit rest hist alt todo prf pt
+            val nalt = if cut2 then alt else cont
+        in prove mat nsub hist nalt todo nprf rest
+        end
+    | NONE => extend mat sub lit rest hist alt todo prf (Matrix.entries mat neglit)
     end
 and extend mat sub lit rest (hist as (path, lem, lim)) alt todo prf entries =
     (writeln ("extend with entries = " ^ PolyML.makestring entries);
