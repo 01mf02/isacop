@@ -248,22 +248,23 @@ type 'a todo_fun = Unif.subst_offset * (unit -> 'a) * proof -> 'a
 
 fun add_step (sub, _) step prf = (sub, step) :: prf
 
-fun prove mat sub (hist as (path, lem, _)) alt todo prf = fn
+fun prove mat sub (hist as (path, lem, _)) alt todo prf cla =
+  (TextIO.print ("prove with cla = " ^ PolyML.makestring cla ^ "\n");
+  case cla of
     [] => todo (sub, alt, prf)
   | (cl as lit :: rest) =>
      let val cont = (fn () => reduce mat sub lit rest hist alt todo prf path)
          val nalt = if cut1 then alt else cont
-         val _ = TextIO.print ("prove cl: " ^ PolyML.makestring cl ^ "\n")
      in  if List.exists (fn x => List.exists (Unif.eq sub x) path) cl
            then alt ()
          else if List.exists (Unif.eq sub lit) lem
            then prove mat sub hist nalt todo (add_step sub (Lem lit) prf) rest
          else
            reduce mat sub lit rest hist alt todo prf path
-     end
+     end)
 and reduce mat sub lit rest hist alt todo prf path =
     let val neglit = FTerm.negateLit lit
-    in (TextIO.print ("reduce with lit = " ^ PolyML.makestring lit ^ "\n");
+    in  TextIO.print ("reduce with lit = " ^ PolyML.makestring lit ^ " and path = " ^ PolyML.makestring path ^ "\n");
     case path of
       plit :: pt => (case Unif.unify sub neglit plit of
         SOME sub2 =>
@@ -273,16 +274,17 @@ and reduce mat sub lit rest hist alt todo prf path =
           in prove mat sub2 hist nalt todo nprf rest
           end
         | NONE => reduce mat sub lit rest hist alt todo prf pt)
-      | [] => extend mat sub lit rest hist alt todo prf (Matrix.entries mat neglit))
+      | [] => extend mat sub lit rest hist alt todo prf (Matrix.entries mat neglit)
     end
 and extend mat sub lit rest (hist as (path, lem, lim)) alt todo prf entries =
-    (TextIO.print "extend\n"; case entries of
+    (TextIO.print ("extend with entries = " ^ PolyML.makestring entries ^ "\n");
+    case entries of
       (eh as (_, _, vars)) :: et =>
         (case (if lim <= 0 andalso vars > 0 then NONE else Unif.unify_contra sub lit eh) of
         SOME (sub2, cla1) =>
           let val nhis1 = (path, lit :: lem, lim)
-              fun ntodo (sub, nalt, prf) = prove mat sub nhis1 (if cut3 then alt else nalt) todo prf rest
               val nhist = (lit :: path, lem, lim - 1)
+              fun ntodo (sub, nalt, prf) = prove mat sub nhis1 (if cut3 then alt else nalt) todo prf rest
               val nprf  = add_step sub (Res (lit, path, lem)) prf
               fun nalt () = extend mat sub lit rest hist alt todo prf et
           in  prove mat sub2 nhist nalt ntodo nprf cla1
