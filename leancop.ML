@@ -215,10 +215,13 @@ end
 signature LEANCOP =
 sig
 
+type path
+type lemmas
+
 datatype proof_step =
     Lemma of FTerm.lit
   | Path of FTerm.lit
-  | Resolution of (FTerm.lit * FTerm.clause * FTerm.clause)
+  | Resolution of (FTerm.lit * path * lemmas)
 type proof = (Subst.substitution * proof_step) list
 
 type history
@@ -238,17 +241,18 @@ val cut1 = true
 val cut2 = true
 val cut3 = true
 
+type path   = FTerm.lit list
+type lemmas = FTerm.lit list
+type history = path * lemmas * int
+
+
 datatype proof_step =
     Lemma of FTerm.lit
   | Path of FTerm.lit
-  | Resolution of (FTerm.lit * FTerm.clause * FTerm.clause)
+  | Resolution of (FTerm.lit * path * lemmas)
 type proof = (Subst.substitution * proof_step) list
 
 exception Solved of proof
-
-type path = FTerm.lit list
-type lemmas = FTerm.lit list
-type history = path * lemmas * int
 
 (* continuation types *)
 type 'a alternative = unit -> 'a

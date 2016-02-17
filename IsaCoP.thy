@@ -95,27 +95,76 @@ ML {* @{term "\<forall>x. \<exists>y. f(x, y) \<and> Q(r)"} *}
 (* Example of the Lemma rule *)
 lemma "\<not>hashek \<or> p \<or> q \<Longrightarrow> \<not>p \<or> r \<Longrightarrow> \<not>r \<Longrightarrow> \<not>q \<or> p \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
+oops
+
+(*
+[ ([], Lemma (p, []))
+, ([], Resolution ((q, []), [(#, [])], [(p, [])]))
+, ([], Resolution ((r, []), [(p, []), (#, [])], []))
+, ([], Resolution ((p, []), [(#, [])], []))
+, ([], Resolution ((1, []), [], []))
+]
+*)
+
+lemma ac: "True \<Longrightarrow> True"
+by simp
+
+lemma bc: "False \<Longrightarrow> True"
+by simp
+
+lemma ab: "True \<or> False"
+by simp
+
+lemma "True \<or> False \<Longrightarrow> True"
+apply (rule disjE[OF ab ac bc]) .
+
+lemma
+  assumes "\<not>hashek \<or> p \<or> q"
+  assumes "\<not>p \<or> r"
+  assumes "\<not>r"
+  assumes "\<not>q \<or> p"
+  shows "False"
+proof -
+  have 1: "p \<or> q" using hashek_def assms(1) by simp
+  have 2: "p \<Longrightarrow> False" proof -
+    assume p
+    then have r using assms(2) by simp
+    then show ?thesis using assms(3) by contradiction
+  qed
+  have 3: "q \<Longrightarrow> False" proof -
+    assume q
+    then have p using assms(4) by simp
+    then show ?thesis using 2 by simp
+  qed
+
+  show ?thesis apply (rule disjE[OF 1 2 3]) .
+qed
 
 (* Example of the Path rule *)
 lemma "\<not>hashek \<or> p \<Longrightarrow> \<not>p \<or> q \<Longrightarrow> \<not>q \<or> \<not>p \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
+oops
 
 lemma "\<not>b(x) \<or> \<not>hashek \<Longrightarrow> \<forall>y. (b(y)) \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
+oops
 
 lemma "\<forall>x y. P(x,y) \<Longrightarrow> \<exists>a. \<forall>b. P(a, b)"
 apply (isacop 1)
+oops
 
 lemma "\<And>a. \<forall>x. \<exists>y. P(x,y) \<Longrightarrow> \<forall>x. P(f(x),a) \<Longrightarrow> Q(r)"
 apply (isacop 1)
+oops
 
 lemma
   "\<And>s. \<forall>x. ((P(x) \<longleftrightarrow> a \<and> b) \<or> ((\<forall>z. R(z,s)) \<or> (\<exists>y. \<forall>w. \<exists>v. Q(y, w, v)) \<and> r)) \<or> z \<Longrightarrow> a \<or> (b \<and> c) \<Longrightarrow> True \<Longrightarrow> False"
 apply (isacop 1)
-sorry
+oops
 
 
 lemma "\<And>y. y \<Longrightarrow> Q \<Longrightarrow> R \<Longrightarrow> \<forall>x. P(x)"
-by (isacop 1)
+apply (isacop 1)
+oops
 
 end
