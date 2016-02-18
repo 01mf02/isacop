@@ -44,11 +44,11 @@ end
 signature MATRIX =
 sig
 
-type contrapositive
-type matrix
-val entries : matrix -> FTerm.lit -> contrapositive list
-val insert_clauses : matrix -> FTerm.clauses -> unit
-val empty : int -> matrix
+type 'a contrapositive
+type 'a matrix
+val entries : 'a matrix -> FTerm.lit -> 'a contrapositive list
+val insert_clauses : 'a matrix -> (FTerm.clause * 'a) list -> unit
+val empty : int -> 'a matrix
 val hashek : FTerm.predicate
 
 end
@@ -59,10 +59,10 @@ struct
 val goal_directed = true
 
 (* (lit-arguments, rest-clause, vars) *)
-type contrapositive = (FTerm.term list * FTerm.clause * int)
+type 'a contrapositive = (FTerm.term list * FTerm.clause * int * 'a)
 
 (* for every predicate, store list of possible contrapositives *)
-type matrix = contrapositive list Array.array
+type 'a matrix = 'a contrapositive list Array.array
 
 (*fun int_of_nat n = if n mod 2 = 0 then n div 2 else ~(n+1) div 2*)
 fun nat_of_int i = if i >= 0 then 2*i else ~(2*i + 1)
@@ -84,16 +84,16 @@ fun app_rest _ _ [] = ()
   | app_rest acc f (h :: t) = (f (h, List.revAppend (acc, t)); app_rest (h :: acc) f t)
 
 local
-  fun insert_contrapositive mat max_var ((p,tl), rest) =
+  fun insert_contrapositive mat max_var info ((p,tl), rest) =
     let val n = nat_of_int p
         val nohashek = List.filter (fn l => l <> hashek_lit) rest
-    in  Array.update (mat, n, (tl, nohashek, max_var) :: Array.sub (mat, n))
+    in  Array.update (mat, n, (tl, nohashek, max_var, info) :: Array.sub (mat, n))
     end
 
-  fun insert_clause mat cl =
+  fun insert_clause mat (cl, info) =
     let val max_var = clauseMaxVar cl
         val cl = clause_prefix_hash cl
-    in  app_rest [] (insert_contrapositive mat max_var) cl
+    in  app_rest [] (insert_contrapositive mat max_var info) cl
     end
 in
   fun insert_clauses mat = List.app (insert_clause mat)
@@ -140,7 +140,7 @@ sig
 type subst_offset
 val eq : subst_offset -> FTerm.lit -> FTerm.lit -> bool
 val unify : subst_offset -> FTerm.lit -> FTerm.lit -> subst_offset option
-val unify_contra : subst_offset -> FTerm.lit -> Matrix.contrapositive ->
+val unify_contra : subst_offset -> FTerm.lit -> 'a Matrix.contrapositive ->
   (subst_offset * FTerm.clause) option
 
 end
@@ -180,7 +180,7 @@ fun unify_rename off (t1, t2, sub) = case (t1, t2) of
       (fn t => unify_rename off (t, t2, sub)) sub x
 and unify_rename_list off = ListPair.foldlEq (unify_rename off)
 
-fun unify_contrapos sub off (_, args1) (args2, rest, vars) =
+fun unify_contrapos sub off (_, args1) (args2, rest, vars, _) =
     if vars = 0 then ((unifyTerms sub (args1, args2), off), rest)
     else
       let val sub' = unify_rename_list off sub (args1, args2)
@@ -218,19 +218,18 @@ sig
 type path
 type lemmas
 
-datatype proof_step =
+datatype 'a proof_step =
     Lemma of FTerm.lit
   | Path of FTerm.lit
-  | Resolution of (FTerm.lit * path * lemmas)
-type proof = (Subst.substitution * proof_step) list
+  | Resolution of (FTerm.lit * path * lemmas * 'a)
+type 'a proof = (Subst.substitution * 'a proof_step) list
 
 type history
 type 'a alternative
-type 'a promise
+type ('a, 'b) promise
 
-val prove : Matrix.matrix -> Unif.subst_offset -> history -> 'a alternative -> 'a promise -> proof -> FTerm.clause -> 'a
-val prove_exception : Matrix.matrix -> int -> unit
-val prove_some : Matrix.matrix -> int -> (Subst.substitution * proof_step) list option
+val prove : 'b Matrix.matrix -> Unif.subst_offset -> history -> 'a alternative -> ('a, 'b) promise -> 'b proof -> FTerm.clause -> 'a
+val prove_default : (unit, 'b) promise -> 'b Matrix.matrix -> int -> unit
 
 end
 
@@ -246,17 +245,15 @@ type lemmas = FTerm.lit list
 type history = path * lemmas * int
 
 
-datatype proof_step =
+datatype 'a proof_step =
     Lemma of FTerm.lit
   | Path of FTerm.lit
-  | Resolution of (FTerm.lit * path * lemmas)
-type proof = (Subst.substitution * proof_step) list
-
-exception Solved of proof
+  | Resolution of (FTerm.lit * path * lemmas * 'a)
+type 'a proof = (Subst.substitution * 'a proof_step) list
 
 (* continuation types *)
 type 'a alternative = unit -> 'a
-type 'a promise = Unif.subst_offset * (unit -> 'a) * proof -> 'a
+type ('a, 'b) promise = Unif.subst_offset -> 'a alternative -> 'b proof -> 'a
 
 fun add_step (sub, _) step prf = (sub, step) :: prf
 
@@ -267,7 +264,7 @@ fun findSome f (x :: xs) = (case f x of SOME y => SOME (x, y, xs) | NONE => find
 fun prove mat sub (hist as (path, lem, _)) alt todo prf cla =
   (writeln ("prove with cla = " ^ PolyML.makestring cla);
   case cla of
-    [] => todo (sub, alt, prf)
+    [] => todo sub alt prf
   | (cl as lit :: rest) =>
      let val cont = (fn () => reduce mat sub lit rest hist alt todo prf path)
          val nalt = if cut1 then alt else cont
@@ -296,34 +293,32 @@ and reduce mat sub lit rest hist alt todo prf path =
     | NONE => extend mat sub lit rest hist alt todo prf (Matrix.entries mat neglit)
     end
 and extend mat sub lit rest (hist as (path, lem, lim)) alt todo prf entries =
-    let fun extensible (entry as (_, _, vars)) =
+    let fun extensible (entry as (_, _, vars, _)) =
             if lim <= 0 andalso vars > 0 then NONE
             else Unif.unify_contra sub lit entry
     in
     writeln ("extend with entries = " ^ PolyML.makestring entries);
     case findSome extensible entries of
       (* we can unify literal with some matrix entry *)
-      SOME (_, (nsub, cla1), et) =>
+      SOME ((_, _, _, info), (nsub, cla1), et) =>
           let val hist1 = (lit :: path, lem, lim - 1)
               val hist2 = (path, lit :: lem, lim)
-              fun todo1 (sub, alt2, prf) = prove mat sub hist2 (if cut3 then alt else alt2) todo prf rest
-              val prf1  = add_step sub (Resolution (lit, path, lem)) prf
+              fun todo1 sub alt2 prf = prove mat sub hist2 (if cut3 then alt else alt2) todo prf rest
+              (* TODO: record nsub instead of sub in proof? *)
+              val prf1  = add_step nsub (Resolution (lit, path, lem, info)) prf
               fun alt1 () = extend mat sub lit rest hist alt todo prf et
           in  prove mat nsub hist1 alt1 todo1 prf1 cla1
           end
     | NONE => alt ()
     end
 
-fun prove_exception mat lim =
+fun prove_default todo mat lim =
   let val sub = (Subst.emptySubst, 0)
       val hist = ([], [], lim)
       fun alt () = ()
-      fun todo (_, _, prf) = raise (Solved prf)
       val prf = []
       val cla = [(Matrix.hashek, [])]
   in prove mat sub hist alt todo prf cla
   end
-
-fun prove_some mat lim = (prove_exception mat lim; NONE) handle (Solved prf) => SOME prf
 
 end

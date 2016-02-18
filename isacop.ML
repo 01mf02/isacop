@@ -84,17 +84,33 @@ fun conv_clauses tab =
 fun conv_asms tab =
   List.foldl (fn (cls, (tab, asms)) => conv_clauses tab cls ||> flip cons asms) (tab, []) ##> List.rev
 
+
+
+
+exception Solved of thm leanCoP.proof
+
+val prove_exception =
+  let fun todo _ _ prf = raise (Solved prf)
+  in  leanCoP.prove_default todo
+  end
+
+fun prove_some mat lim = (prove_exception mat lim; NONE) handle (Solved prf) => SOME prf
+
+
+val pair_concat = List.map (fn (xs, y) => List.map (fn x => (x, y)) xs) #> List.concat
+
 fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cterm, ...}) =
   let val _ = map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks
       val tasms = map (strip_trueprop o Thm.term_of) asms
       val tasm2 = map (#3 o stripq [] []) tasms
       val (symm, _) = Symmap.insert (Symmap.empty 10000, @{const_name hashek})
-      val (tab, cls) = conv_asms symm tasm2 ||> List.concat
-      val _ = pretty_clauses cls |> Pretty.writeln
+      val (tab, clss) = conv_asms symm tasm2
+      val cls = clss ~~ prems |> pair_concat
+      val _ = cls |> List.map #1 |> pretty_clauses |> Pretty.writeln
       val mat = Matrix.empty 10000
       val _ = Matrix.insert_clauses mat cls
       (* val _ = PolyML.makestring mat |> writeln; *)
-      val _ = (leanCoP.prove_exception mat 10; writeln "Sorry, no proof found.")
+      val _ = (prove_exception mat 10; writeln "Sorry, no proof found.")
   in all_tac
   end
 
