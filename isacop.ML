@@ -87,7 +87,7 @@ fun conv_asms tab =
 
 
 
-exception Solved of thm leanCoP.proof
+exception Solved of (int * thm) leanCoP.proof
 
 val prove_exception =
   let fun todo _ _ prf = raise (Solved prf)
@@ -96,8 +96,9 @@ val prove_exception =
 
 fun prove_some mat lim = (prove_exception mat lim; NONE) handle (Solved prf) => SOME prf
 
-
-val pair_concat = List.map (fn (xs, y) => List.map (fn x => (x, y)) xs) #> List.concat
+(* With every clause, save the theorem it came from plus
+   the index of the theorem conjunct that contains the clause.  *)
+val pair_concat = List.map (fn (xs, y) => map_index (fn (i, x) => (x, (i, y))) xs) #> List.concat
 
 fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cterm, ...}) =
   let val _ = map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks

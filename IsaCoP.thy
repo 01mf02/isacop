@@ -194,6 +194,11 @@ qed
 
 section \<open>More experiments\<close>
 
+(* You can read off the index of the conjunct that is used from an assumption. *)
+lemma " \<not>b \<or> \<not>hashek \<Longrightarrow> a \<and> b \<Longrightarrow> False"
+apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
+oops
+
 lemma "\<not>b(x) \<or> \<not>hashek \<Longrightarrow> \<forall>y. (b(y)) \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
 oops
