@@ -96,9 +96,9 @@ val prove_exception =
 
 fun prove_some mat lim = (prove_exception mat lim; NONE) handle (Solved prf) => SOME prf
 
-(* With every clause, save the theorem it came from plus
+(* With every clause, save the theorem (premise) it came from, plus
    the index of the theorem conjunct that contains the clause.  *)
-val pair_concat = List.map (fn (xs, y) => map_index (fn (i, x) => (x, (i, y))) xs) #> List.concat
+fun recon_info (cls, prem) = map_index (fn (i, cl) => (cl, (i, prem))) cls
 
 fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cterm, ...}) =
   let val _ = map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks
@@ -106,7 +106,7 @@ fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cte
       val tasm2 = map (#3 o stripq [] []) tasms
       val (symm, _) = Symmap.insert (Symmap.empty 10000, @{const_name hashek})
       val (tab, clss) = conv_asms symm tasm2
-      val cls = clss ~~ prems |> pair_concat
+      val cls = ListPair.mapEq recon_info (clss, prems) |> List.concat
       val _ = cls |> List.map #1 |> pretty_clauses |> Pretty.writeln
       val mat = Matrix.empty 10000
       val _ = Matrix.insert_clauses mat cls
