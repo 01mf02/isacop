@@ -27,12 +27,14 @@ fun simp_tac_only ctxt ths =
   put_simpset FOL_basic_ss ctxt addsimps ths
   |> TRY oo asm_full_simp_tac
 
+
+(* Also known as Curry's C combinator. *)
+fun flip f x y = f y x
+
 fun destConstFree (Const (c, T)) = (c, T)
   | destConstFree (Free (f, T)) = (f, T)
   | destConstFree x = raise TERM ("destConstFree", [x])
 
-(* Also known as Curry's C combinator. *)
-fun flip f x y = f y x
 
 (* TODO! Introduce Skolem functions! *)
 fun conv_term tab (Bound b) = (tab, FTerm.V b)
@@ -47,18 +49,17 @@ and conv_args tab =
   List.foldl (fn (t, (tab, args)) => conv_term tab t ||> flip cons args) (tab, []) ##> List.rev
 
 
-fun conv_prop tab (@{const "Not"} $ t) = conv_prop tab t ||> FTerm.negateLit
-  | conv_prop tab t =
-  let val (tab', FTerm.A (P, args)) = conv_term tab t
-  in (tab', (P, args))
-  end
+val dest_conj = FOLogic.dest_conj
+fun dest_disj (Const (@{const_name disj}, _) $ t $ t') = t :: dest_disj t'
+  | dest_disj t = [t];
+
 
 fun stripq all ex (Const (@{const_name "All"}, _) $ Abs (x, T, t)) = stripq ((x,T)::all) ex t
   | stripq all ex (Const (@{const_name "Ex"}, _) $ Abs (x, T, t)) = stripq all ((x, T, all)::ex) t
   | stripq all ex t = (all, ex, t)
 
-fun fold_clauses f acc (@{const conj} $ t $ u) = fold_clauses f (f (t, acc)) u
-  | fold_clauses f acc t = f (t, acc)
+fun fold_clauses f acc t = fold f (dest_conj t) acc
+
 
 fun fold_clause f acc (@{const disj} $ t $ u) = fold_clause f (f (t, acc)) u
   | fold_clause f acc t = f (t, acc)
@@ -77,14 +78,18 @@ fun pretty_lit (P, args) = pretty_term (FTerm.A (P, args))
 val pretty_clause = Pretty.separate " \<or>" o map pretty_lit
 val pretty_clauses = Pretty.block o Pretty.separate " \<and>" o map (Pretty.enclose "(" ")" o pretty_clause)
 
+fun conv_prop tab (@{const "Not"} $ t) = conv_prop tab t ||> FTerm.negateLit
+  | conv_prop tab t =
+  let val (tab', FTerm.A (P, args)) = conv_term tab t
+  in (tab', (P, args))
+  end
+
 fun conv_clause tab =
   fold_clause (fn (t, (tab, cl)) => conv_prop tab t ||> flip cons cl) (tab, []) ##> List.rev
 fun conv_clauses tab =
-  fold_clauses (fn (cl, (tab, cls)) => conv_clause tab cl ||> flip cons cls) (tab, []) ##> List.rev
+  fold_clauses (fn cl => fn (tab, cls) => conv_clause tab cl ||> flip cons cls) (tab, []) ##> List.rev
 fun conv_asms tab =
   List.foldl (fn (cls, (tab, asms)) => conv_clauses tab cls ||> flip cons asms) (tab, []) ##> List.rev
-
-
 
 
 exception Solved

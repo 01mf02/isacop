@@ -176,7 +176,7 @@ fun unifyLit sub (h1, l1) (h2, l2) = if h1 <> h2 then raise Unify else unifyTerm
 fun offsetTermVars off = mapVars (fn v => v + off)
 fun offsetLitVars off (p, l) = (p, List.map (offsetTermVars off) l)
 
-(* Unification with renaming of the second argument *)
+(*Unify with renaming of the second argument.*)
 fun unify_rename off (t1, t2, sub) = case (t1, t2) of
     (A(f,fa), A(g,ga)) => if f <> g then raise Unify else unify_rename_list off sub (fa, ga)
   | (t1, V x) =>
@@ -195,7 +195,7 @@ fun unify_contrapos sub off (_, args1) (args2, rest, vars, _) =
       in  ((sub', off + vars), rest')
       end
 
-(* True if variable is equivalent to another variable under substitution. *)
+(*True if variable is equivalent to another variable under substitution.*)
 fun eqVar sub x (V y) = x = y orelse Subst.mapSubst false (eqVar sub x) sub y
   | eqVar _   _ (A _) = false
 
