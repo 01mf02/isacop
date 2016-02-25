@@ -229,7 +229,7 @@ type 'a alternative
 type ('a, 'b) promise
 
 val prove : 'b Matrix.matrix -> Unif.subst_offset -> history -> 'a alternative -> ('a, 'b) promise -> 'b proof -> FTerm.clause -> 'a
-val prove_default : (unit, 'b) promise -> 'b Matrix.matrix -> int -> unit
+val prove_default : 'a alternative -> ('a, 'b) promise -> 'b Matrix.matrix -> int -> 'a
 
 end
 
@@ -312,10 +312,9 @@ and extend mat sub lit rest (hist as (path, lem, lim)) alt todo prf entries =
     | NONE => alt ()
     end
 
-fun prove_default todo mat lim =
+fun prove_default alt todo mat lim =
   let val sub = (Subst.emptySubst, 0)
       val hist = ([], [], lim)
-      fun alt () = ()
       val prf = []
       val cla = [(Matrix.hashek, [])]
   in prove mat sub hist alt todo prf cla

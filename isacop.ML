@@ -89,12 +89,11 @@ fun conv_asms tab =
 
 exception Solved of (int * thm) leanCoP.proof
 
-val prove_exception =
-  let fun todo _ _ prf = raise (Solved prf)
-  in  leanCoP.prove_default todo
+val prove_some =
+  let fun todo _ _ prf = SOME prf
+      fun alt () = NONE
+  in  leanCoP.prove_default alt todo
   end
-
-fun prove_some mat lim = (prove_exception mat lim; NONE) handle (Solved prf) => SOME prf
 
 (* With every clause, save the theorem (premise) it came from, plus
    the index of the theorem conjunct that contains the clause.  *)
@@ -111,7 +110,9 @@ fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cte
       val mat = Matrix.empty 10000
       val _ = Matrix.insert_clauses mat cls
       (* val _ = PolyML.makestring mat |> writeln; *)
-      val _ = (prove_exception mat 10; writeln "Sorry, no proof found.")
+      val _ = case prove_some mat 10 of
+          SOME p => raise Solved p
+        | NONE => writeln "Sorry, no proof found."
   in all_tac
   end
 
