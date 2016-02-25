@@ -111,32 +111,34 @@ fun empty size = Array.array (size, [])
 end
 
 
-signature SUBST =
+signature MORPHISM =
 sig
 
-type substitution
-val mapSubst : 'a -> (FTerm.term -> 'a) -> substitution -> FTerm.variable -> 'a
-val addSubst : substitution -> FTerm.variable -> FTerm.term -> substitution
-val emptySubst : substitution
+type ('a, 'b) morphism
+val map : 'c -> ('b -> 'c) -> (''a, 'b) morphism -> ''a -> 'c
+val add : ('a, 'b) morphism -> 'a -> 'b -> ('a, 'b) morphism
+val empty : ('a, 'b) morphism
 
 end
 
-structure Subst : SUBST =
+structure ListMorphism : MORPHISM =
 struct
 
-type substitution = (FTerm.variable * FTerm.term) list
+type ('a, 'b) morphism = ('a * 'b) list
 
-fun getSubst subst x = case List.find (fn (x', _) => x = x') subst of
+fun get morph x = case List.find (fn (x', _) => x = x') morph of
     NONE => NONE
   | SOME (_, t) => SOME t
 
-fun mapSubst n s subst x = case getSubst subst x of NONE => n | SOME t => s t
+fun map n s subst x = case get subst x of NONE => n | SOME t => s t
 
-fun addSubst subst x t = (x, t) :: subst
+fun add subst x t = (x, t) :: subst
 
-val emptySubst = []
+val empty = []
 
 end
+
+structure Subst = ListMorphism
 
 
 signature UNIF =
@@ -156,18 +158,19 @@ struct
 
 open FTerm
 
+type subst = (FTerm.variable, FTerm.term) ListMorphism.morphism
 type offset = int
-type subst_offset = Subst.substitution * offset
+type subst_offset = subst * offset
 
 exception Unify
 
-fun isTriv sub x (V y) = x = y orelse Subst.mapSubst false (fn t => isTriv sub x t) sub y
+fun isTriv sub x (V y) = x = y orelse Subst.map false (fn t => isTriv sub x t) sub y
   | isTriv sub x (A (_, a)) = if List.exists (isTriv sub x) a then raise Unify else false
 
-fun addSubst sub x t = if isTriv sub x t then sub else Subst.addSubst sub x t
+fun addSubst sub x t = if isTriv sub x t then sub else Subst.add sub x t
 
 fun unifyTerm (A(f, fa), A(g, ga), sub) = if f <> g then raise Unify else unifyTerms sub (fa, ga)
-  | unifyTerm (V(x), tm, sub) = Subst.mapSubst (addSubst sub x tm) (fn t => unifyTerm (tm, t, sub)) sub x
+  | unifyTerm (V(x), tm, sub) = Subst.map (addSubst sub x tm) (fn t => unifyTerm (tm, t, sub)) sub x
   | unifyTerm (tm, V(x), sub) = unifyTerm (V(x), tm, sub)
 and unifyTerms sub = ListPair.foldlEq unifyTerm sub
 
@@ -181,9 +184,9 @@ fun unify_rename off (t1, t2, sub) = case (t1, t2) of
     (A(f,fa), A(g,ga)) => if f <> g then raise Unify else unify_rename_list off sub (fa, ga)
   | (t1, V x) =>
       let val x' = x + off
-      in  Subst.mapSubst (addSubst sub x' t1) (fn t => unify_rename 0 (t1, t, sub)) sub x'
+      in  Subst.map (addSubst sub x' t1) (fn t => unify_rename 0 (t1, t, sub)) sub x'
       end
-  | (V x, t2) => Subst.mapSubst (addSubst sub x (offsetTermVars off t2))
+  | (V x, t2) => Subst.map (addSubst sub x (offsetTermVars off t2))
       (fn t => unify_rename off (t, t2, sub)) sub x
 and unify_rename_list off = ListPair.foldlEq (unify_rename off)
 
@@ -196,12 +199,12 @@ fun unify_contrapos sub off (_, args1) (args2, rest, vars, _) =
       end
 
 (*True if variable is equivalent to another variable under substitution.*)
-fun eqVar sub x (V y) = x = y orelse Subst.mapSubst false (eqVar sub x) sub y
+fun eqVar sub x (V y) = x = y orelse Subst.map false (eqVar sub x) sub y
   | eqVar _   _ (A _) = false
 
 fun eqTerm sub (t1, t2) = case (t1, t2) of
     (A(f, fa), A(g, ga)) => f = g andalso eqTermList sub (fa, ga)
-  | (V x, t2) => Subst.mapSubst (eqVar sub x t2) (fn t => eqTerm sub (t, t2)) sub x
+  | (V x, t2) => Subst.map (eqVar sub x t2) (fn t => eqTerm sub (t, t2)) sub x
   | (t1, V _) => eqTerm sub (t2, t1)
 and eqTermList sub = ListPair.allEq (eqTerm sub)
 
@@ -316,7 +319,7 @@ and extend mat sub lit rest (hist as (path, lem, lim)) alt todo prf entries =
     end
 
 fun prove_default alt todo mat lim =
-  let val sub = (Subst.emptySubst, 0)
+  let val sub = (Subst.empty, 0)
       val hist = ([], [], lim)
       val prf = []
       val cla = [(Matrix.hashek, [])]
