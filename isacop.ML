@@ -87,10 +87,10 @@ fun conv_asms tab =
 
 
 
-exception Solved of (int * thm) leanCoP.proof
+exception Solved
 
 val prove_some =
-  let fun todo _ _ prf = SOME prf
+  let fun todo sub _ prf = SOME (sub, prf)
       fun alt () = NONE
   in  leanCoP.prove_default alt todo
   end
@@ -111,7 +111,7 @@ fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cte
       val _ = Matrix.insert_clauses mat cls
       (* val _ = PolyML.makestring mat |> writeln; *)
       val _ = case prove_some mat 10 of
-          SOME p => raise Solved p
+          SOME p => (@{print} p; raise Solved)
         | NONE => writeln "Sorry, no proof found."
   in all_tac
   end

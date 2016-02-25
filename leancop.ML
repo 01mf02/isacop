@@ -79,7 +79,12 @@ fun clause_prefix_hash cl =
      not (Option.isSome (List.find (fn lit => lit = hashek_lit) cl))
   then hashek_lit :: cl else cl
 
-(* run function for every element and all other elements of the list *)
+(*Run function for every element and all other elements of the list.
+  For example: app_rest [] f [1, 2, 3] =
+    f (1, [2, 3]);
+    f (2, [1, 3]);
+    f (3, [1, 2])
+*)
 fun app_rest _ _ [] = ()
   | app_rest acc f (h :: t) = (f (h, List.revAppend (acc, t)); app_rest (h :: acc) f t)
 
@@ -137,6 +142,7 @@ end
 signature UNIF =
 sig
 
+type offset
 type subst_offset
 val eq : subst_offset -> FTerm.lit -> FTerm.lit -> bool
 val unify : subst_offset -> FTerm.lit -> FTerm.lit -> subst_offset option
@@ -150,7 +156,8 @@ struct
 
 open FTerm
 
-type subst_offset = Subst.substitution * int
+type offset = int
+type subst_offset = Subst.substitution * offset
 
 exception Unify
 
@@ -221,8 +228,8 @@ type lemmas
 datatype 'a proof_step =
     Lemma of FTerm.lit
   | Path of FTerm.lit
-  | Resolution of (FTerm.lit * path * lemmas * 'a)
-type 'a proof = (Subst.substitution * 'a proof_step) list
+  | Resolution of FTerm.lit * (int * 'a)
+type 'a proof
 
 type history
 type 'a alternative
@@ -248,14 +255,12 @@ type history = path * lemmas * int
 datatype 'a proof_step =
     Lemma of FTerm.lit
   | Path of FTerm.lit
-  | Resolution of (FTerm.lit * path * lemmas * 'a)
-type 'a proof = (Subst.substitution * 'a proof_step) list
+  | Resolution of FTerm.lit * (Unif.offset * 'a)
+type 'a proof = 'a proof_step list
 
 (* continuation types *)
 type 'a alternative = unit -> 'a
 type ('a, 'b) promise = Unif.subst_offset -> 'a alternative -> 'b proof -> 'a
-
-fun add_step (sub, _) step prf = (sub, step) :: prf
 
 (* Return first element that returns SOME plus the rest of the list, else NONE. *)
 fun findSome f (x :: xs) = (case f x of SOME y => SOME (x, y, xs) | NONE => findSome f xs)
@@ -273,7 +278,7 @@ fun prove mat sub (hist as (path, lem, _)) alt todo prf cla =
            then alt ()
          (* if literal is among the lemmas, remove it and treat rest clause *)
          else if List.exists (Unif.eq sub lit) lem
-           then prove mat sub hist nalt todo (add_step sub (Lemma lit) prf) rest
+           then prove mat sub hist nalt todo (Lemma lit :: prf) rest
          else
            reduce mat sub lit rest hist alt todo prf path
      end)
@@ -284,11 +289,10 @@ and reduce mat sub lit rest hist alt todo prf path =
     case findSome (Unif.unify sub neglit) path of
       (* negated literal is on the path *)
       SOME (_, nsub, pt) =>
-        let val nprf = add_step sub (Path lit) prf
-            (* possibly try to reduce with other literal on path later *)
+        let (* possibly try to reduce with other literal on path later *)
             fun cont () = reduce mat sub lit rest hist alt todo prf pt
             val nalt = if cut2 then alt else cont
-        in prove mat nsub hist nalt todo nprf rest
+        in prove mat nsub hist nalt todo (Path lit :: prf) rest
         end
     | NONE => extend mat sub lit rest hist alt todo prf (Matrix.entries mat neglit)
     end
@@ -303,9 +307,8 @@ and extend mat sub lit rest (hist as (path, lem, lim)) alt todo prf entries =
       SOME ((_, _, _, info), (nsub, cla1), et) =>
           let val hist1 = (lit :: path, lem, lim - 1)
               val hist2 = (path, lit :: lem, lim)
+              val prf1  = Resolution (lit, (snd sub, info)) :: prf
               fun todo1 sub alt2 prf = prove mat sub hist2 (if cut3 then alt else alt2) todo prf rest
-              (* TODO: record nsub instead of sub in proof? *)
-              val prf1  = add_step nsub (Resolution (lit, path, lem, info)) prf
               fun alt1 () = extend mat sub lit rest hist alt todo prf et
           in  prove mat nsub hist1 alt1 todo1 prf1 cla1
           end
