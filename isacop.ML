@@ -128,7 +128,7 @@ end
 signature FOL_TO_HOL =
 sig
 
-val reconstruct : 'a -> Unif.subst * (int * thm) leanCoP.proof -> thm list
+val reconstruct : Proof.context -> Termmap.bimap -> Unif.subst * (int * thm) leanCoP.proof -> thm list
 
 end
 
@@ -149,15 +149,18 @@ fun get_subs off vars =
   #> sort (prod_ord int_ord (K EQUAL))
   #> rev
 
-fun treat_res sub (lit, (off, (_, _, vars, (i, thm)))) =
+fun inst_spec ct th =
+  th RS (instantiate' [SOME (Thm.ctyp_of_cterm ct)] [NONE, SOME ct] @{thm spec})
+
+fun treat_res ctxt tab sub (lit, (off, (_, _, vars, (i, thm)))) =
   let val th_subs = get_subs off vars sub
-  in thm
+  in fold inst_spec (map (Thm.cterm_of ctxt o conv_term tab o #2) th_subs) thm
   end
 
-fun reconstruct tab (sub, prf) =
+fun reconstruct ctxt tab (sub, prf) =
   let
     val res = map_filter destResolution prf
-    val ths = map (treat_res sub) res
+    val ths = map (treat_res ctxt tab sub) res
   in ths
   end
 
@@ -225,7 +228,7 @@ fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cte
       val _ = Matrix.insert_clauses mat cls
       (* val _ = PolyML.makestring mat |> writeln; *)
       val _ = case prove_some mat 10 of
-          SOME p => (@{print} p; FOL_to_HOL.reconstruct tab p |> map (Display.pretty_thm ctxt) |> Pretty.writeln_chunks; raise Solved)
+          SOME p => (@{print} p; FOL_to_HOL.reconstruct ctxt tab p |> map (Display.pretty_thm ctxt) |> Pretty.writeln_chunks; raise Solved)
         | NONE => writeln "Sorry, no proof found."
   in all_tac
   end
