@@ -50,30 +50,29 @@ fun strip_quants quants (Const (quant, _) $ Abs (x, T, t)) =
 
 fun map_bndvars f = map_aterms (fn t => case t of Bound i => f i | _ => t)
 
-fun skolemise all (((quant, (x, _)), quanti) :: quants, t) ctxt =
-  if quant = @{const_name "All"} then skolemise (quanti :: all) (quants, t) ctxt
+fun skolemise_term all (((quant, (x, _)), quanti) :: quants, t) ctxt =
+  if quant = @{const_name "All"} then skolemise_term (quanti :: all) (quants, t) ctxt
   else
     let val (name, ctxt') = Name.variant (Name.skolem x) ctxt
         val skolem = List.foldl (op $) (Const (name, dummyT)) (List.map Bound all)
         val t' = map_bndvars (fn i => if i = quanti then skolem else Bound i) t
-    in skolemise all (quants, t') ctxt'
+    in skolemise_term all (quants, t') ctxt'
     end
+  | skolemise_term _ ([], t) ctxt = (t, ctxt)
 
-
-fun skolemise_assm assm =
+fun skolemise_assm assm ctxt =
   let
     val (quants, bare) = strip_quants [] assm
     val indexed = quants ~~ ((List.length quants - 1) downto 0)
-  in 5
+  in skolemise_term [] (indexed, bare) ctxt
   end
 
-(*
-- For every existential quantifier, replace corresponding bound variable
-  by Skolem term depending on the previous bound variables
-- Use something like:
-    val (x, c) = Name.variant (Name.skolem "asd") Name.context;
-    val (y, _) = Name.variant "asd" c;
-*)
+fun skolemise_assms assms = fold_map skolemise_assm assms Name.context
+
+end
+
+structure HOL2FOL =
+struct
 
 (* Also known as Curry's C combinator. *)
 fun flip f x y = f y x
@@ -127,7 +126,7 @@ fun conv_asms tab =
 fun asdf asms =
   let (*val _ = map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks*)
       val tasms = map (strip_trueprop o Thm.term_of) asms
-      val tasm2 = map (#2 o strip_quants []) tasms
+      val tasm2 = map (#2 o Skolemisation.strip_quants []) tasms
       val (symm, _) = Symmap.insert (Symmap.empty 10000, @{const_name hashek})
       val (tab, clss) = conv_asms symm tasm2
   in (tab, clss)
@@ -181,7 +180,7 @@ fun recon_info (cls, prem) = map_index (fn (i, cl) => (cl, (i, prem))) cls
 
 fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cterm, ...}) =
   let (*val _ = map (Syntax.pretty_term ctxt o Thm.term_of) asms |> Pretty.writeln_chunks*)
-      val (_, clss) = Skolemisation.asdf asms
+      val (_, clss) = HOL2FOL.asdf asms
       val cls = ListPair.mapEq recon_info (clss, prems) |> List.concat
       val _ = cls |> List.map #1 |> pretty_clauses |> Pretty.writeln
       val mat = Matrix.empty 10000
