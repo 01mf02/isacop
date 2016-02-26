@@ -8,6 +8,7 @@ type lit
 type clause
 type clauses
 
+val destApp : term -> (int * term list)
 val negateLit : lit -> lit
 val mapVars : (variable -> variable) -> term -> term
 val termVars : term -> variable list
@@ -25,6 +26,9 @@ datatype term = V of variable | A of int * term list
 type lit = predicate * term list
 type clause = lit list
 type clauses = clause list
+
+fun destApp (A (f, args)) = (f, args)
+  | destApp _ = raise Fail "destApp"
 
 fun negateLit (i, l) = (~i, l)
 

@@ -36,8 +36,6 @@ fun prepare_tac ctxt =
 
 end
 
-structure Symmap = IntBimap (type key = string val ord = string_ord)
-
 
 structure Skolemisation =
 struct
@@ -71,64 +69,49 @@ fun skolemise_assms assms = fold_map skolemise_assm assms Name.context
 
 end
 
+
+structure Symmap = IntBimap (type key = string val ord = string_ord)
+
+
 structure HOL2FOL =
 struct
-
-(* Also known as Curry's C combinator. *)
-fun flip f x y = f y x
 
 fun destConstFree (Const (c, T)) = (c, T)
   | destConstFree (Free (f, T)) = (f, T)
   | destConstFree x = raise TERM ("destConstFree", [x])
 
-
-(* TODO! Introduce Skolem functions! *)
-fun conv_term tab (Bound b) = (tab, FTerm.V b)
-  | conv_term tab t =
-  let val (P, args) = strip_comb t
-      val Ps = fst (destConstFree P)
-      val (tab', P') = Symmap.insert (tab, Ps)
-      val (tab'', args') = conv_args tab' args
-  in (tab'', FTerm.A (P', args'))
+fun conv_term (Bound b) tab = (FTerm.V b, tab)
+  | conv_term t tab =
+  let val (P, args) = strip_comb t |>> fst o destConstFree
+      val (tab', P') = Symmap.insert (tab, P)
+      val (args', tab'') = fold_map conv_term args tab'
+  in (FTerm.A (P', args'), tab'')
   end
-and conv_args tab =
-  List.foldl (fn (t, (tab, args)) => conv_term tab t ||> flip cons args) (tab, []) ##> List.rev
+
+fun conv_prop (@{const "Not"} $ t) tab = conv_prop t tab |>> FTerm.negateLit
+  | conv_prop t tab = conv_term t tab |>> FTerm.destApp
+
+val conv_clause = fold_map conv_prop
+val conv_clauses = fold_map conv_clause
+val conv_asms = fold_map conv_clauses
 
 
 val dest_conj = FOLogic.dest_conj
 fun dest_disj (Const (@{const_name disj}, _) $ t $ t') = t :: dest_disj t'
   | dest_disj t = [t];
 
-
-
-fun fold_clauses f acc t = fold f (dest_conj t) acc
-
-
-fun fold_clause f acc (@{const disj} $ t $ u) = fold_clause f (f (t, acc)) u
-  | fold_clause f acc t = f (t, acc)
+val clausify = map dest_disj o dest_conj
 
 fun strip_trueprop (Const (@{const_name "Trueprop"}, _) $ t) = t
   | strip_trueprop t = t
 
-fun conv_prop tab (@{const "Not"} $ t) = conv_prop tab t ||> FTerm.negateLit
-  | conv_prop tab t =
-  let val (tab', FTerm.A (P, args)) = conv_term tab t
-  in (tab', (P, args))
-  end
-
-fun conv_clause tab =
-  fold_clause (fn (t, (tab, cl)) => conv_prop tab t ||> flip cons cl) (tab, []) ##> List.rev
-fun conv_clauses tab =
-  fold_clauses (fn cl => fn (tab, cls) => conv_clause tab cl ||> flip cons cls) (tab, []) ##> List.rev
-fun conv_asms tab =
-  List.foldl (fn (cls, (tab, asms)) => conv_clauses tab cls ||> flip cons asms) (tab, []) ##> List.rev
 
 fun asdf asms =
   let (*val _ = map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks*)
       val tasms = map (strip_trueprop o Thm.term_of) asms
-      val tasm2 = map (#2 o Skolemisation.strip_quants []) tasms
+      val tasm2 : term list = map (#2 o Skolemisation.strip_quants []) tasms
       val (symm, _) = Symmap.insert (Symmap.empty 10000, @{const_name hashek})
-      val (tab, clss) = conv_asms symm tasm2
+      val (clss, tab) = conv_asms (map clausify tasm2) symm
   in (tab, clss)
   end
 
