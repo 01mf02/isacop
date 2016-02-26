@@ -73,7 +73,8 @@ end
 structure Symmap = IntBimap (type key = string val ord = string_ord)
 
 
-structure HOL2FOL =
+
+structure HOL_to_FOL =
 struct
 
 fun destConstFree (Const (c, T)) = (c, T)
@@ -105,22 +106,8 @@ val clausify = map dest_disj o dest_conj
 end
 
 
-structure IsaCoP =
+structure FTerm =
 struct
-
-
-val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20);
-val trace = Attrib.setup_config_bool @{binding isacop_trace} (K true);
-
-fun cond_tracing true msg = tracing (msg ())
-  | cond_tracing false _ = ();
-
-fun TRACE ctxt rl tac i st =
-  (cond_tracing (Config.get ctxt trace) (fn () => Display.string_of_thm ctxt rl); tac i st);
-
-
-
-
 
 fun pretty_term (FTerm.V v) = Pretty.str ("v" ^ Int.toString v)
   | pretty_term (FTerm.A (f, [])) = Pretty.str (Int.toString f)
@@ -133,7 +120,38 @@ fun pretty_lit (P, args) = pretty_term (FTerm.A (P, args))
 val pretty_clause = Pretty.separate " \<or>" o map pretty_lit
 val pretty_clauses = Pretty.block o Pretty.separate " \<and>" o map (Pretty.enclose "(" ")" o pretty_clause)
 
+end
 
+
+structure FOL_to_HOL =
+struct
+
+(*
+- Get (FO_variable, FO_term) list for theorem
+- If all term references to foreign Skolem functions are in mapping,
+  instantiate theorem with corresponding terms and
+  add Skolem function reference to mapping (FO_term, HO_term)
+- Else postpone theorem
+- Iterate this procedure over all theorems in extension steps
+- If procedure terminates with non-empty list, fail
+- Map every extension step theorem now to its instantiated version
+  and select the conjunct with the correct assumption number
+*)
+
+end
+
+
+structure IsaCoP =
+struct
+
+val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20);
+val trace = Attrib.setup_config_bool @{binding isacop_trace} (K true);
+
+fun cond_tracing true msg = tracing (msg ())
+  | cond_tracing false _ = ();
+
+fun TRACE ctxt rl tac i st =
+  (cond_tracing (Config.get ctxt trace) (fn () => Display.string_of_thm ctxt rl); tac i st);
 
 
 exception Solved
@@ -157,18 +175,18 @@ fun asdf asms =
          map (strip_trueprop o Thm.term_of)
       #> Skolemisation.skolemise_assms
       #> fst
-      #> map HOL2FOL.clausify
+      #> map HOL_to_FOL.clausify
     val (symm, _) = Symmap.insert (Symmap.empty 10000, @{const_name hashek})
-    val (clss, tab) = HOL2FOL.conv_asms (clausify asms) symm
-  in (tab, clss)
+    val (clss, tab) = HOL_to_FOL.conv_asms (clausify asms) symm
+  in (clss, tab)
   end
 
 
 fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cterm, ...}) =
   let (*val _ = map (Syntax.pretty_term ctxt o Thm.term_of) asms |> Pretty.writeln_chunks*)
-      val (_, clss) = asdf asms
+      val (clss, _) = asdf asms
       val cls = ListPair.mapEq recon_info (clss, prems) |> List.concat
-      val _ = cls |> List.map #1 |> pretty_clauses |> Pretty.writeln
+      val _ = cls |> List.map #1 |> FTerm.pretty_clauses |> Pretty.writeln
       val mat = Matrix.empty 10000
       val _ = Matrix.insert_clauses mat cls
       (* val _ = PolyML.makestring mat |> writeln; *)
