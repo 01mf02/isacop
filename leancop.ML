@@ -148,6 +148,7 @@ structure Subst = ListMorphism
 signature UNIF =
 sig
 
+type subst
 type offset
 type subst_offset
 val eq : subst_offset -> FTerm.lit -> FTerm.lit -> bool
@@ -235,7 +236,7 @@ type lemmas
 datatype 'a proof_step =
     Lemma of FTerm.lit
   | Path of FTerm.lit
-  | Resolution of FTerm.lit * (int * 'a)
+  | Resolution of FTerm.lit * (int * 'a Matrix.contrapositive)
 type 'a proof
 
 type history
@@ -262,7 +263,7 @@ type history = path * lemmas * int
 datatype 'a proof_step =
     Lemma of FTerm.lit
   | Path of FTerm.lit
-  | Resolution of FTerm.lit * (Unif.offset * 'a)
+  | Resolution of FTerm.lit * (Unif.offset * 'a Matrix.contrapositive)
 type 'a proof = 'a proof_step list
 
 (* continuation types *)
@@ -311,10 +312,10 @@ and extend mat sub lit rest (hist as (path, lem, lim)) alt todo prf entries =
     writeln ("extend with entries = " ^ PolyML.makestring entries);
     case findSome extensible entries of
       (* we can unify literal with some matrix entry *)
-      SOME ((_, _, _, info), (nsub, cla1), et) =>
+      SOME (entry, (nsub, cla1), et) =>
           let val hist1 = (lit :: path, lem, lim - 1)
               val hist2 = (path, lit :: lem, lim)
-              val prf1  = Resolution (lit, (snd sub, info)) :: prf
+              val prf1  = Resolution (lit, (snd sub, entry)) :: prf
               fun todo1 sub alt2 prf = prove mat sub hist2 (if cut3 then alt else alt2) todo prf rest
               fun alt1 () = extend mat sub lit rest hist alt todo prf et
           in  prove mat nsub hist1 alt1 todo1 prf1 cla1

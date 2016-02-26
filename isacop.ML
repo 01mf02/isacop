@@ -52,7 +52,7 @@ fun skolemise_term all (((quant, (x, _)), quanti) :: quants, t) ctxt =
   if quant = @{const_name "All"} then skolemise_term (quanti :: all) (quants, t) ctxt
   else
     let val (name, ctxt') = Name.variant (Name.skolem x) ctxt
-        val skolem = List.foldl (op $) (Const (name, dummyT)) (List.map Bound all)
+        val skolem = list_comb (Const (name, dummyT), List.map Bound all)
         val t' = map_bndvars (fn i => if i = quanti then skolem else Bound i) t
     in skolemise_term all (quants, t') ctxt'
     end
@@ -125,23 +125,36 @@ val pretty_clauses = Pretty.block o Pretty.separate " \<and>" o map (Pretty.encl
 
 end
 
+signature FOL_TO_HOL =
+sig
 
-structure FOL_to_HOL =
+val reconstruct : 'a -> Unif.subst * (int * thm) leanCoP.proof -> thm list
+
+end
+
+structure FOL_to_HOL : FOL_TO_HOL =
 struct
 
-fun conv_sym tab sym = Option.getOpt (Termmap.backward (tab, sym), raise Fail "conv_term")
+fun conv_sym tab sym = Option.getOpt (Termmap.backward (tab, sym), raise Fail "conv_sym")
 
 fun conv_term _ (FTerm.V v) = Bound v
   | conv_term tab (FTerm.A (f, args)) =
-    List.foldl (op $) (conv_sym tab f) (map (conv_term tab) args)
+    list_comb (conv_sym tab f, map (conv_term tab) args)
 
 fun destResolution (leanCoP.Resolution r) = SOME r
   | destResolution _ = NONE
 
-fun treat_res sub (lit, (off, (i, thm))) =
-  thm
+fun get_subs off vars =
+     filter (fn (v, _) => off <= v andalso v < off + vars)
+  #> sort (prod_ord int_ord (K EQUAL))
+  #> rev
 
-fun reconstruct (sub, prf) =
+fun treat_res sub (lit, (off, (_, _, vars, (i, thm)))) =
+  let val th_subs = get_subs off vars sub
+  in thm
+  end
+
+fun reconstruct tab (sub, prf) =
   let
     val res = map_filter destResolution prf
     val ths = map (treat_res sub) res
@@ -149,7 +162,6 @@ fun reconstruct (sub, prf) =
   end
 
 (*
-- Get (FO_variable, FO_term) list for theorem
 - If all term references to foreign Skolem functions are in mapping,
   instantiate theorem with corresponding terms and
   add Skolem function reference to mapping (FO_term, HO_term)
@@ -179,7 +191,7 @@ fun TRACE ctxt rl tac i st =
 exception Solved
 
 val prove_some =
-  let fun todo sub _ prf = SOME (sub, prf)
+  let fun todo sub _ prf = SOME (fst sub, prf)
       fun alt () = NONE
   in  leanCoP.prove_default alt todo
   end
@@ -206,14 +218,14 @@ fun asdf asms =
 
 fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cterm, ...}) =
   let (*val _ = map (Syntax.pretty_term ctxt o Thm.term_of) asms |> Pretty.writeln_chunks*)
-      val (clss, _) = asdf asms
+      val (clss, tab) = asdf asms
       val cls = ListPair.mapEq recon_info (clss, prems) |> List.concat
       val _ = cls |> List.map #1 |> FTerm.pretty_clauses |> Pretty.writeln
       val mat = Matrix.empty 10000
       val _ = Matrix.insert_clauses mat cls
       (* val _ = PolyML.makestring mat |> writeln; *)
       val _ = case prove_some mat 10 of
-          SOME p => (@{print} p; FOL_to_HOL.reconstruct p |> map (Display.pretty_thm ctxt) |> Pretty.writeln_chunks; raise Solved)
+          SOME p => (@{print} p; FOL_to_HOL.reconstruct tab p |> map (Display.pretty_thm ctxt) |> Pretty.writeln_chunks; raise Solved)
         | NONE => writeln "Sorry, no proof found."
   in all_tac
   end
