@@ -153,10 +153,13 @@ fun strip_trueprop (Const (@{const_name "Trueprop"}, _) $ t) = t
 
 fun asdf asms =
   let (*val _ = map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks*)
-      val tasms = map (strip_trueprop o Thm.term_of) asms
-      val tasm2 : term list = map (#2 o Skolemisation.strip_quants []) tasms
-      val (symm, _) = Symmap.insert (Symmap.empty 10000, @{const_name hashek})
-      val (clss, tab) = HOL2FOL.conv_asms (map HOL2FOL.clausify tasm2) symm
+    val clausify =
+         map (strip_trueprop o Thm.term_of)
+      #> Skolemisation.skolemise_assms
+      #> fst
+      #> map HOL2FOL.clausify
+    val (symm, _) = Symmap.insert (Symmap.empty 10000, @{const_name hashek})
+    val (clss, tab) = HOL2FOL.conv_asms (clausify asms) symm
   in (tab, clss)
   end
 
