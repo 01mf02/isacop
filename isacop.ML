@@ -71,6 +71,7 @@ end
 
 
 structure Symmap = IntBimap (type key = string val ord = string_ord)
+structure Termmap = IntBimap (type key = term val ord = Term_Ord.fast_term_ord)
 
 
 
@@ -83,8 +84,8 @@ fun destConstFree (Const (c, T)) = (c, T)
 
 fun conv_term (Bound b) tab = (FTerm.V b, tab)
   | conv_term t tab =
-  let val (P, args) = strip_comb t |>> fst o destConstFree
-      val (tab', P') = Symmap.insert (tab, P)
+  let val (P, args) = strip_comb t (* |>> fst o destConstFree*)
+      val (tab', P') = Termmap.insert (tab, P)
       val (args', tab'') = fold_map conv_term args tab'
   in (FTerm.A (P', args'), tab'')
   end
@@ -109,6 +110,8 @@ end
 structure FTerm =
 struct
 
+open FTerm
+
 fun pretty_term (FTerm.V v) = Pretty.str ("v" ^ Int.toString v)
   | pretty_term (FTerm.A (f, [])) = Pretty.str (Int.toString f)
   | pretty_term (FTerm.A (f, args)) = Pretty.block
@@ -125,6 +128,25 @@ end
 
 structure FOL_to_HOL =
 struct
+
+fun conv_sym tab sym = Option.getOpt (Termmap.backward (tab, sym), raise Fail "conv_term")
+
+fun conv_term _ (FTerm.V v) = Bound v
+  | conv_term tab (FTerm.A (f, args)) =
+    List.foldl (op $) (conv_sym tab f) (map (conv_term tab) args)
+
+fun destResolution (leanCoP.Resolution r) = SOME r
+  | destResolution _ = NONE
+
+fun treat_res sub (lit, (off, (i, thm))) =
+  thm
+
+fun reconstruct (sub, prf) =
+  let
+    val res = map_filter destResolution prf
+    val ths = map (treat_res sub) res
+  in ths
+  end
 
 (*
 - Get (FO_variable, FO_term) list for theorem
@@ -176,7 +198,7 @@ fun asdf asms =
       #> Skolemisation.skolemise_assms
       #> fst
       #> map HOL_to_FOL.clausify
-    val (symm, _) = Symmap.insert (Symmap.empty 10000, @{const_name hashek})
+    val (symm, _) = Termmap.insert (Termmap.empty 10000, @{const hashek})
     val (clss, tab) = HOL_to_FOL.conv_asms (clausify asms) symm
   in (clss, tab)
   end
@@ -191,7 +213,7 @@ fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cte
       val _ = Matrix.insert_clauses mat cls
       (* val _ = PolyML.makestring mat |> writeln; *)
       val _ = case prove_some mat 10 of
-          SOME p => (@{print} p; raise Solved)
+          SOME p => (@{print} p; FOL_to_HOL.reconstruct p |> map (Display.pretty_thm ctxt) |> Pretty.writeln_chunks; raise Solved)
         | NONE => writeln "Sorry, no proof found."
   in all_tac
   end
