@@ -1,16 +1,5 @@
-structure IsaCoP =
+structure Prenex =
 struct
-
-structure Symmap = IntBimap (type key = string val ord = string_ord)
-
-val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20);
-val trace = Attrib.setup_config_bool @{binding isacop_trace} (K true);
-
-fun cond_tracing true msg = tracing (msg ())
-  | cond_tracing false _ = ();
-
-fun TRACE ctxt rl tac i st =
-  (cond_tracing (Config.get ctxt trace) (fn () => Display.string_of_thm ctxt rl); tac i st);
 
 (* Negate goal and move it to first position. *)
 (* P1 ==> ... Pn ==> G
@@ -27,6 +16,64 @@ fun simp_tac_only ctxt ths =
   put_simpset FOL_basic_ss ctxt addsimps ths
   |> TRY oo asm_full_simp_tac
 
+fun clausify_tac ctxt =
+  simp_tac_only ctxt @{thms meta_simps IFOL_simps cla_simps} THEN'
+  (* K (print_tac ctxt "After simplification") THEN' *)
+  simp_tac_only ctxt @{thms prenex_ex prenex_all} THEN'
+  (* K (print_tac ctxt "After prenexing") THEN' *)
+  simp_tac_only ctxt @{thms precnf_simps} THEN'
+  simp_tac_only ctxt @{thms cnf_simps} THEN'
+  simp_tac_only ctxt @{thms conj_simps disj_simps}
+
+fun prepare_tac ctxt =
+  (* introduce hashek into goal *)
+  resolve_tac ctxt @{thms hashekE} THEN'
+  K (print_tac ctxt "Initial proof state") THEN'
+  negOfGoal_tac ctxt THEN'
+  (* K (print_tac ctxt "After negation") THEN' *)
+  clausify_tac ctxt THEN'
+  K (print_tac ctxt "After clausification")
+
+end
+
+structure Symmap = IntBimap (type key = string val ord = string_ord)
+
+
+structure Skolemisation =
+struct
+
+fun strip_quants quants (Const (quant, _) $ Abs (x, T, t)) =
+      if quant = @{const_name "All"} orelse quant = @{const_name "Ex"} then
+        strip_quants ((quant, (x, T)) :: quants) t
+      else (List.rev quants, t)
+  | strip_quants quants t = (List.rev quants, t)
+
+fun map_bndvars f = map_aterms (fn t => case t of Bound i => f i | _ => t)
+
+fun skolemise all (((quant, (x, _)), quanti) :: quants, t) ctxt =
+  if quant = @{const_name "All"} then skolemise (quanti :: all) (quants, t) ctxt
+  else
+    let val (name, ctxt') = Name.variant (Name.skolem x) ctxt
+        val skolem = List.foldl (op $) (Const (name, dummyT)) (List.map Bound all)
+        val t' = map_bndvars (fn i => if i = quanti then skolem else Bound i) t
+    in skolemise all (quants, t') ctxt'
+    end
+
+
+fun skolemise_assm assm =
+  let
+    val (quants, bare) = strip_quants [] assm
+    val indexed = quants ~~ ((List.length quants - 1) downto 0)
+  in 5
+  end
+
+(*
+- For every existential quantifier, replace corresponding bound variable
+  by Skolem term depending on the previous bound variables
+- Use something like:
+    val (x, c) = Name.variant (Name.skolem "asd") Name.context;
+    val (y, _) = Name.variant "asd" c;
+*)
 
 (* Also known as Curry's C combinator. *)
 fun flip f x y = f y x
@@ -54,9 +101,6 @@ fun dest_disj (Const (@{const_name disj}, _) $ t $ t') = t :: dest_disj t'
   | dest_disj t = [t];
 
 
-fun stripq all ex (Const (@{const_name "All"}, _) $ Abs (x, T, t)) = stripq ((x,T)::all) ex t
-  | stripq all ex (Const (@{const_name "Ex"}, _) $ Abs (x, T, t)) = stripq all ((x, T, all)::ex) t
-  | stripq all ex t = (all, ex, t)
 
 fun fold_clauses f acc t = fold f (dest_conj t) acc
 
@@ -66,17 +110,6 @@ fun fold_clause f acc (@{const disj} $ t $ u) = fold_clause f (f (t, acc)) u
 
 fun strip_trueprop (Const (@{const_name "Trueprop"}, _) $ t) = t
   | strip_trueprop t = t
-
-fun pretty_term (FTerm.V v) = Pretty.str ("v" ^ Int.toString v)
-  | pretty_term (FTerm.A (f, [])) = Pretty.str (Int.toString f)
-  | pretty_term (FTerm.A (f, args)) = Pretty.block
-      [ Pretty.str (Int.toString f)
-      , Pretty.enclose "(" ")" (Pretty.commas (map pretty_term args))
-      ]
-
-fun pretty_lit (P, args) = pretty_term (FTerm.A (P, args))
-val pretty_clause = Pretty.separate " \<or>" o map pretty_lit
-val pretty_clauses = Pretty.block o Pretty.separate " \<and>" o map (Pretty.enclose "(" ")" o pretty_clause)
 
 fun conv_prop tab (@{const "Not"} $ t) = conv_prop tab t ||> FTerm.negateLit
   | conv_prop tab t =
@@ -90,6 +123,48 @@ fun conv_clauses tab =
   fold_clauses (fn cl => fn (tab, cls) => conv_clause tab cl ||> flip cons cls) (tab, []) ##> List.rev
 fun conv_asms tab =
   List.foldl (fn (cls, (tab, asms)) => conv_clauses tab cls ||> flip cons asms) (tab, []) ##> List.rev
+
+fun asdf asms =
+  let (*val _ = map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks*)
+      val tasms = map (strip_trueprop o Thm.term_of) asms
+      val tasm2 = map (#2 o strip_quants []) tasms
+      val (symm, _) = Symmap.insert (Symmap.empty 10000, @{const_name hashek})
+      val (tab, clss) = conv_asms symm tasm2
+  in (tab, clss)
+  end
+
+end
+
+
+structure IsaCoP =
+struct
+
+
+val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20);
+val trace = Attrib.setup_config_bool @{binding isacop_trace} (K true);
+
+fun cond_tracing true msg = tracing (msg ())
+  | cond_tracing false _ = ();
+
+fun TRACE ctxt rl tac i st =
+  (cond_tracing (Config.get ctxt trace) (fn () => Display.string_of_thm ctxt rl); tac i st);
+
+
+
+
+
+fun pretty_term (FTerm.V v) = Pretty.str ("v" ^ Int.toString v)
+  | pretty_term (FTerm.A (f, [])) = Pretty.str (Int.toString f)
+  | pretty_term (FTerm.A (f, args)) = Pretty.block
+      [ Pretty.str (Int.toString f)
+      , Pretty.enclose "(" ")" (Pretty.commas (map pretty_term args))
+      ]
+
+fun pretty_lit (P, args) = pretty_term (FTerm.A (P, args))
+val pretty_clause = Pretty.separate " \<or>" o map pretty_lit
+val pretty_clauses = Pretty.block o Pretty.separate " \<and>" o map (Pretty.enclose "(" ")" o pretty_clause)
+
+
 
 
 exception Solved
@@ -105,11 +180,8 @@ val prove_some =
 fun recon_info (cls, prem) = map_index (fn (i, cl) => (cl, (i, prem))) cls
 
 fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cterm, ...}) =
-  let val _ = map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks
-      val tasms = map (strip_trueprop o Thm.term_of) asms
-      val tasm2 = map (#3 o stripq [] []) tasms
-      val (symm, _) = Symmap.insert (Symmap.empty 10000, @{const_name hashek})
-      val (tab, clss) = conv_asms symm tasm2
+  let (*val _ = map (Syntax.pretty_term ctxt o Thm.term_of) asms |> Pretty.writeln_chunks*)
+      val (_, clss) = Skolemisation.asdf asms
       val cls = ListPair.mapEq recon_info (clss, prems) |> List.concat
       val _ = cls |> List.map #1 |> pretty_clauses |> Pretty.writeln
       val mat = Matrix.empty 10000
@@ -121,23 +193,6 @@ fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cte
   in all_tac
   end
 
-fun clausify_tac ctxt =
-  simp_tac_only ctxt @{thms meta_simps IFOL_simps cla_simps} THEN'
-  (* K (print_tac ctxt "After simplification") THEN' *)
-  simp_tac_only ctxt @{thms prenex_ex prenex_all} THEN'
-  (* K (print_tac ctxt "After prenexing") THEN' *)
-  simp_tac_only ctxt @{thms precnf_simps} THEN'
-  simp_tac_only ctxt @{thms cnf_simps} THEN'
-  simp_tac_only ctxt @{thms conj_simps disj_simps}
-
-fun prepare_tac ctxt =
-  (* introduce hashek into goal *)
-  resolve_tac ctxt @{thms hashekE} THEN'
-  K (print_tac ctxt "Initial proof state") THEN'
-  negOfGoal_tac ctxt THEN'
-  (* K (print_tac ctxt "After negation") THEN' *)
-  clausify_tac ctxt THEN'
-  K (print_tac ctxt "After clausification")
 
 fun raw_isacop ctxt =
   Subgoal.FOCUS isacop_focus ctxt THEN'
@@ -148,7 +203,7 @@ fun isacop_tac (ctxt:Proof.context) lim =
     val start = Timing.start ();
     val lim = Config.get ctxt depth_limit;
   in
-    Object_Logic.atomize_prems_tac ctxt THEN' prepare_tac ctxt THEN' raw_isacop ctxt
+    Object_Logic.atomize_prems_tac ctxt THEN' Prenex.prepare_tac ctxt THEN' raw_isacop ctxt
   end;
 
 val _ =
