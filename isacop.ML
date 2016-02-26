@@ -135,7 +135,9 @@ end
 structure FOL_to_HOL : FOL_TO_HOL =
 struct
 
-fun conv_sym tab sym = Option.getOpt (Termmap.backward (tab, sym), raise Fail "conv_sym")
+fun conv_sym tab sym = case Termmap.backward (tab, sym) of
+      SOME t => t
+    | NONE => raise Fail ("conv_sym: " ^ Int.toString sym)
 
 fun conv_term _ (FTerm.V v) = Bound v
   | conv_term tab (FTerm.A (f, args)) =
