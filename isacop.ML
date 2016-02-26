@@ -102,19 +102,6 @@ fun dest_disj (Const (@{const_name disj}, _) $ t $ t') = t :: dest_disj t'
 
 val clausify = map dest_disj o dest_conj
 
-fun strip_trueprop (Const (@{const_name "Trueprop"}, _) $ t) = t
-  | strip_trueprop t = t
-
-
-fun asdf asms =
-  let (*val _ = map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks*)
-      val tasms = map (strip_trueprop o Thm.term_of) asms
-      val tasm2 : term list = map (#2 o Skolemisation.strip_quants []) tasms
-      val (symm, _) = Symmap.insert (Symmap.empty 10000, @{const_name hashek})
-      val (clss, tab) = conv_asms (map clausify tasm2) symm
-  in (tab, clss)
-  end
-
 end
 
 
@@ -161,9 +148,22 @@ val prove_some =
    the index of the theorem conjunct that contains the clause.  *)
 fun recon_info (cls, prem) = map_index (fn (i, cl) => (cl, (i, prem))) cls
 
+fun strip_trueprop (Const (@{const_name "Trueprop"}, _) $ t) = t
+  | strip_trueprop t = t
+
+fun asdf asms =
+  let (*val _ = map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks*)
+      val tasms = map (strip_trueprop o Thm.term_of) asms
+      val tasm2 : term list = map (#2 o Skolemisation.strip_quants []) tasms
+      val (symm, _) = Symmap.insert (Symmap.empty 10000, @{const_name hashek})
+      val (clss, tab) = HOL2FOL.conv_asms (map HOL2FOL.clausify tasm2) symm
+  in (tab, clss)
+  end
+
+
 fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cterm, ...}) =
   let (*val _ = map (Syntax.pretty_term ctxt o Thm.term_of) asms |> Pretty.writeln_chunks*)
-      val (_, clss) = HOL2FOL.asdf asms
+      val (_, clss) = asdf asms
       val cls = ListPair.mapEq recon_info (clss, prems) |> List.concat
       val _ = cls |> List.map #1 |> pretty_clauses |> Pretty.writeln
       val mat = Matrix.empty 10000
