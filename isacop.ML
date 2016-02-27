@@ -162,15 +162,28 @@ fun get_subs off vars =
 fun inst_spec ct th =
   th RS (instantiate' [SOME (Thm.ctyp_of_cterm ct)] [NONE, SOME ct] @{thm spec})
 
+(*Go through substitution.
+  If a term is mapped to an application A (f, fa)
+    If f is a Skolem symbol
+      If A (f, fa) is in tmmap, return tmmap entry
+      Else fail
+    Else recurse into fa and replace stuff there
+  Else (term is mapped to a variable v)
+    If v is in substitution
+      Handle substitute for v
+    Else
+      Fix a new variable for v and return it
+*)
+
 (*We need two mappings: one from (int * thm) to thm (thmap), and
   one from FTerm.term to Isabelle terms (tmmap), containing Skolem terms *)
 (*Do we need to traverse the substitution transitively?*)
-fun treat_res (tab, sub) (res as (lit, (off, (_, _, vars, (i, thm))))) ((ctxt, thmap, tmmap), todo) =
+fun treat_res (symtab, sktab, sub) (res as (lit, (off, (_, _, vars, (i, thm))))) ((ctxt, thmap, tmmap), todo) =
   let val th_subs = get_subs off vars sub
   in
     (* TODO: fail if Skolem variables in substitution that are not in mapping *)
     if length th_subs = vars then
-      let val inst = fold inst_spec (map (Thm.cterm_of ctxt o conv_term tab o #2) th_subs) thm
+      let val inst = fold inst_spec (map (Thm.cterm_of ctxt o conv_term symtab o #2) th_subs) thm
       in ((ctxt, ((i, thm), inst) :: thmap, tmmap), todo)
       end
     else
@@ -189,7 +202,7 @@ fun iterate f acc [] = acc
 fun reconstruct ctxt symtab sktab (sub, prf) =
   let
     val res = map_filter destResolution prf
-    val (ctxt', thmap, tmmap) = iterate (treat_res (symtab, sub)) (ctxt, [], []) res
+    val (ctxt', thmap, tmmap) = iterate (treat_res (symtab, sktab, sub)) (ctxt, [], []) res
   in (map snd thmap)
   end
 
