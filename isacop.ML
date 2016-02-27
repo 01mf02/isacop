@@ -48,21 +48,26 @@ fun strip_quants quants (Const (quant, _) $ Abs (x, T, t)) =
 
 fun map_bndvars f = map_aterms (fn t => case t of Bound i => f i | _ => t)
 
-fun skolemise_term all (((quant, (x, _)), quanti) :: quants, t) ctxt =
-  if quant = @{const_name "All"} then skolemise_term (quanti :: all) (quants, t) ctxt
+fun skolemise_term all ex (((quant, (x, _)), quanti) :: quants) t ctxt =
+  if quant = @{const_name "All"} then skolemise_term (quanti :: all) ex quants t ctxt
   else
     let val (name, ctxt') = Name.variant (Name.skolem x) ctxt
-        val skolem = list_comb (Const (name, dummyT), List.map Bound all)
+        val skolem = list_comb (Const (name, dummyT), List.map Bound (rev all))
         val t' = map_bndvars (fn i => if i = quanti then skolem else Bound i) t
-    in skolemise_term all (quants, t') ctxt'
+    in skolemise_term all (skolem :: ex) quants t' ctxt'
     end
-  | skolemise_term _ ([], t) ctxt = (t, ctxt)
+  | skolemise_term _ ex [] t ctxt = ((rev ex, t), ctxt)
+
+fun strip_trueprop (Const (@{const_name "Trueprop"}, _) $ t) = t
+  | strip_trueprop t = t
 
 fun skolemise_assm assm ctxt =
   let
-    val (quants, bare) = strip_quants [] assm
-    val indexed = quants ~~ ((List.length quants - 1) downto 0)
-  in skolemise_term [] (indexed, bare) ctxt
+    val t = assm |> Thm.term_of |> strip_trueprop
+    val (quants, bare) = strip_quants [] t
+    val quants' = quants ~~ ((List.length quants - 1) downto 0)
+    val (sk, ctxt') = skolemise_term [] [] quants' bare ctxt
+  in ((assm, sk), ctxt')
   end
 
 fun skolemise_assms assms = fold_map skolemise_assm assms Name.context
@@ -224,32 +229,27 @@ val prove_some =
    the index of the theorem conjunct that contains the clause.  *)
 fun recon_info (cls, prem) = map_index (fn (i, cl) => (cl, (i, prem))) cls
 
-fun strip_trueprop (Const (@{const_name "Trueprop"}, _) $ t) = t
-  | strip_trueprop t = t
 
 fun asdf asms =
   let (*val _ = map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks*)
-    val clausify =
-         map (strip_trueprop o Thm.term_of)
-      #> Skolemisation.skolemise_assms
-      #> fst
-      #> map HOL_to_FOL.clausify
+    val (skolemised, _) = Skolemisation.skolemise_assms asms
+    val clausified = map HOL_to_FOL.clausify (map (#2 o #2) skolemised)
     val (symm, _) = Termmap.insert (Termmap.empty 10000, @{const hashek})
-    val (clss, tab) = HOL_to_FOL.conv_asms (clausify asms) symm
-  in (clss, tab)
+    val (clss, tab) = HOL_to_FOL.conv_asms clausified symm
+  in (clss, tab, skolemised)
   end
 
 
 fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cterm, ...}) =
   let (*val _ = map (Syntax.pretty_term ctxt o Thm.term_of) asms |> Pretty.writeln_chunks*)
-      val (clss, tab) = asdf asms
+      val (clss, symtab, sktab) = asdf asms
       val cls = ListPair.mapEq recon_info (clss, prems) |> List.concat
       val _ = cls |> List.map #1 |> FTerm.pretty_clauses |> Pretty.writeln
       val mat = Matrix.empty 10000
       val _ = Matrix.insert_clauses mat cls
       (* val _ = PolyML.makestring mat |> writeln; *)
       val _ = case prove_some mat 10 of
-          SOME p => (@{print} p; FOL_to_HOL.reconstruct ctxt tab p |> map (Display.pretty_thm ctxt) |> Pretty.writeln_chunks; raise Solved)
+          SOME p => (@{print} p; FOL_to_HOL.reconstruct ctxt symtab p |> map (Display.pretty_thm ctxt) |> Pretty.writeln_chunks; raise Solved)
         | NONE => writeln "Sorry, no proof found."
   in all_tac
   end
