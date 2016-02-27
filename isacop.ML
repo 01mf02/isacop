@@ -175,6 +175,29 @@ fun inst_spec ct th =
       Fix a new variable for v and return it
 *)
 
+exception Unsubst
+
+fun unsubst (maps as (symmap, skmap)) (t as FTerm.A (f, args)) (acc as (tmmap, ctxt)) =
+      (*f is a Skolem symbol*)
+      if List.exists (fn (_, (syms, _)) => member (op =) syms f) skmap then
+        (case List.find (fn (fo, ho) => fo = t) tmmap of
+          SOME (_, ho) => (ho, acc)
+        | NONE => raise Unsubst)
+      else
+        let val f' = case Termmap.backward (symmap, f) of SOME ho => ho | NONE => raise Fail "unsubst"
+            val (args', acc') = fold_map (unsubst maps) args acc
+        in  (list_comb (f', args'), acc')
+        end
+  | unsubst maps (t as FTerm.V v) (acc as (tmmap, ctxt)) =
+      case AList.lookup (op =) tmmap t of
+        SOME tm => (tm, acc)
+      | NONE =>
+          (*TODO: Perhaps we need to do more here? See Isar Implementation manual, p. 119 *)
+          let val (var, ctxt') = Variable.variant_fixes [Int.toString v] ctxt
+              val t' = Syntax.read_term ctxt' (the_single var)
+          in (t', (tmmap, ctxt'))
+          end
+
 (*We need two mappings: one from (int * thm) to thm (thmap), and
   one from FTerm.term to Isabelle terms (tmmap), containing Skolem terms *)
 (*Do we need to traverse the substitution transitively?*)
@@ -251,8 +274,8 @@ fun asdf asms =
     val (skolemised, _) = Skolemisation.skolemise_assms asms
     val clausified = map HOL_to_FOL.clausify (map (#2 o #2) skolemised)
     val (symm, _) = Termmap.insert (Termmap.empty 10000, @{const hashek})
-    val (clss, tab) = HOL_to_FOL.conv_asms clausified symm
-  in (clss, tab, skolemised)
+    val (clss, symtab) = HOL_to_FOL.conv_asms clausified symm
+  in (clss, symtab, skolemised)
   end
 
 
