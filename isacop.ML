@@ -136,7 +136,7 @@ end
 signature FOL_TO_HOL =
 sig
 
-val reconstruct : Proof.context -> Termmap.bimap -> Skolemisation.table -> Unif.subst * (int * thm) leanCoP.proof -> thm list
+val reconstruct : Proof.context -> Termmap.bimap -> Skolemisation.table -> Subst.subst * (int * thm) leanCoP.proof -> thm list
 
 end
 

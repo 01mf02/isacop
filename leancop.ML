@@ -160,7 +160,6 @@ end
 signature UNIF =
 sig
 
-type subst
 type offset
 type subst_offset
 val eq : subst_offset -> FTerm.lit -> FTerm.lit -> bool
@@ -175,9 +174,8 @@ struct
 
 open FTerm
 
-type subst = (FTerm.variable, FTerm.term) ListMorphism.morphism
 type offset = int
-type subst_offset = subst * offset
+type subst_offset = Subst.subst * offset
 
 exception Unify
 
