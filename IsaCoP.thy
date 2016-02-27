@@ -206,6 +206,46 @@ proof -
   show ?thesis using 1 2 by auto
 qed
 
+(*To instantiate existantial quantifiers, we fix all of the variables, then assume the
+  statement without the existential quantifier.*)
+lemma
+  assumes "\<forall>x. P(x)"
+  assumes "\<exists>x. \<not>P(x)"
+  assumes "\<exists>x. Q(x)"
+  shows "False"
+proof -
+  {
+    fix x y
+    assume "Q(y)"
+    assume "\<not>P(x)"
+    then have False using assms(1) by auto
+  }
+  note block = this
+
+  show ?thesis using exE[OF assms(2) exE[OF assms(3) block]] .
+qed
+
+(*When we have alternating quantifiers, we always open a proof block
+  when we encounter an existential, otherwise we just fix the universal.*)
+lemma
+  assumes "\<forall>x. \<exists>y. \<forall>z. P(x, y, z)"
+  shows "\<exists>a b c. P(a, b, c)"
+proof -
+  fix a
+  have all1: "\<exists>y. \<forall>z. P(a, y, z)" using spec[OF assms(1)] .
+  {
+    fix b
+    assume ex1: "\<forall>z. P(a, b, z)"
+    fix c
+    have all2: "P(a, b, c)" using spec[OF ex1] .
+    then have "\<exists>a b c. P(a, b, c)" by auto
+  }
+  note block = this
+  show ?thesis using exE[OF all1 block] .
+qed
+
+
+
 (* You can read off the index of the conjunct that is used from an assumption. *)
 lemma " \<not>b \<or> \<not>hashek \<Longrightarrow> a \<and> b \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
