@@ -154,16 +154,35 @@ fun get_subs off vars =
 fun inst_spec ct th =
   th RS (instantiate' [SOME (Thm.ctyp_of_cterm ct)] [NONE, SOME ct] @{thm spec})
 
-fun treat_res ctxt tab sub (lit, (off, (_, _, vars, (i, thm)))) =
+(*We need two mappings: one from (int * thm) to thm (thmap), and
+  one from FTerm.term to Isabelle terms (tmmap), containing Skolem terms *)
+(*Do we need to traverse the substitution transitively?*)
+fun treat_res (tab, sub) (res as (lit, (off, (_, _, vars, (i, thm))))) ((ctxt, thmap, tmmap), todo) =
   let val th_subs = get_subs off vars sub
-  in fold inst_spec (map (Thm.cterm_of ctxt o conv_term tab o #2) th_subs) thm
+  in
+    (* TODO: fail if Skolem variables in substitution that are not in mapping *)
+    if length th_subs = vars then
+      let val inst = fold inst_spec (map (Thm.cterm_of ctxt o conv_term tab o #2) th_subs) thm
+      in ((ctxt, ((i, thm), inst) :: thmap, tmmap), todo)
+      end
+    else
+      ((ctxt, thmap, tmmap), res :: todo)
   end
+
+fun iterate f acc [] = acc
+  | iterate f acc todo =
+      let val (acc', todo') = fold f todo (acc, [])
+      in
+        if List.length todo = List.length todo' then raise (Fail "iterate")
+        else iterate f acc' todo'
+      end
+
 
 fun reconstruct ctxt tab (sub, prf) =
   let
     val res = map_filter destResolution prf
-    val ths = map (treat_res ctxt tab sub) res
-  in ths
+    val (ctxt', thmap, tmmap) = iterate (treat_res (tab, sub)) (ctxt, [], []) res
+  in (map snd thmap)
   end
 
 (*

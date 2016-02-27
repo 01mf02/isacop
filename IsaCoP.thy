@@ -194,6 +194,18 @@ qed
 
 section \<open>More experiments\<close>
 
+(*Sometimes, we have to fix a variable if it is not substituted with a constant.*)
+lemma
+  assumes "\<forall>x. P(x)"
+  assumes "\<forall>x. \<not>P(x)"
+  shows "False"
+proof -
+  fix a
+  have 1: "P(a)" using assms(1) by simp
+  have 2: "\<not>P(a)" using assms(2) by simp
+  show ?thesis using 1 2 by auto
+qed
+
 (* You can read off the index of the conjunct that is used from an assumption. *)
 lemma " \<not>b \<or> \<not>hashek \<Longrightarrow> a \<and> b \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
@@ -203,6 +215,7 @@ lemma "\<not>b(x) \<or> \<not>hashek \<Longrightarrow> \<forall>y. (b(y)) \<Long
 apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
 oops
 
+(* TODO: clausification does not work! *)
 lemma "\<forall>x y. P(x,y) \<Longrightarrow> \<exists>a. \<forall>b. P(a, b)"
 apply (isacop 1)
 oops
