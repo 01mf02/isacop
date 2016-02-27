@@ -10,7 +10,7 @@ type clauses
 
 val destApp : term -> (int * term list)
 val negateLit : lit -> lit
-val mapVars : (variable -> variable) -> term -> term
+val mapVars : (variable -> term) -> term -> term
 val termVars : term -> variable list
 val litVars : lit -> variable list
 val clauseVars : clause -> variable list
@@ -32,7 +32,7 @@ fun destApp (A (f, args)) = (f, args)
 
 fun negateLit (i, l) = (~i, l)
 
-fun mapVars f (V x) = V (f x)
+fun mapVars f (V x) = f x
   | mapVars f (A (g, args)) = A(g, map (mapVars f) args)
 
 fun termVars (V x) = [x]
@@ -142,7 +142,19 @@ val empty = []
 
 end
 
-structure Subst = ListMorphism
+structure Subst =
+struct
+
+open ListMorphism
+
+type subst = (FTerm.variable, FTerm.term) morphism
+
+fun transitive sub =
+  FTerm.mapVars (fn v => ListMorphism.map (FTerm.V v) (transitive sub) sub v)
+
+fun normalise sub = map (fn (v, t) => (v, transitive sub t))
+
+end
 
 
 signature UNIF =
@@ -181,7 +193,7 @@ and unifyTerms sub = ListPair.foldlEq unifyTerm sub
 
 fun unifyLit sub (h1, l1) (h2, l2) = if h1 <> h2 then raise Unify else unifyTerms sub (l1, l2)
 
-fun offsetTermVars off = mapVars (fn v => v + off)
+fun offsetTermVars off = mapVars (fn v => V (v + off))
 fun offsetLitVars off (p, l) = (p, List.map (offsetTermVars off) l)
 
 (*Unify with renaming of the second argument.*)
