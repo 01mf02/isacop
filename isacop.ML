@@ -40,6 +40,9 @@ end
 structure Skolemisation =
 struct
 
+type mapping = thm * (string list * term)
+type table = mapping list
+
 fun strip_quants quants (Const (quant, _) $ Abs (x, T, t)) =
       if quant = @{const_name "All"} orelse quant = @{const_name "Ex"} then
         strip_quants ((quant, (x, T)) :: quants) t
@@ -54,7 +57,7 @@ fun skolemise_term all ex (((quant, (x, _)), quanti) :: quants) t ctxt =
     let val (name, ctxt') = Name.variant (Name.skolem x) ctxt
         val skolem = list_comb (Const (name, dummyT), List.map Bound (rev all))
         val t' = map_bndvars (fn i => if i = quanti then skolem else Bound i) t
-    in skolemise_term all (skolem :: ex) quants t' ctxt'
+    in skolemise_term all (name :: ex) quants t' ctxt'
     end
   | skolemise_term _ ex [] t ctxt = ((rev ex, t), ctxt)
 
@@ -63,7 +66,7 @@ fun strip_trueprop (Const (@{const_name "Trueprop"}, _) $ t) = t
 
 fun skolemise_assm assm ctxt =
   let
-    val t = assm |> Thm.term_of |> strip_trueprop
+    val t = assm |> Thm.concl_of |> strip_trueprop
     val (quants, bare) = strip_quants [] t
     val quants' = quants ~~ ((List.length quants - 1) downto 0)
     val (sk, ctxt') = skolemise_term [] [] quants' bare ctxt
@@ -133,7 +136,7 @@ end
 signature FOL_TO_HOL =
 sig
 
-val reconstruct : Proof.context -> Termmap.bimap -> Unif.subst * (int * thm) leanCoP.proof -> thm list
+val reconstruct : Proof.context -> Termmap.bimap -> Skolemisation.table -> Unif.subst * (int * thm) leanCoP.proof -> thm list
 
 end
 
@@ -183,10 +186,10 @@ fun iterate f acc [] = acc
       end
 
 
-fun reconstruct ctxt tab (sub, prf) =
+fun reconstruct ctxt symtab sktab (sub, prf) =
   let
     val res = map_filter destResolution prf
-    val (ctxt', thmap, tmmap) = iterate (treat_res (tab, sub)) (ctxt, [], []) res
+    val (ctxt', thmap, tmmap) = iterate (treat_res (symtab, sub)) (ctxt, [], []) res
   in (map snd thmap)
   end
 
@@ -240,16 +243,16 @@ fun asdf asms =
   end
 
 
-fun isacop_focus ({context = ctxt, prems: thm list, asms: cterm list, concl: cterm, ...}) =
+fun isacop_focus ({context = ctxt, prems: thm list, concl: cterm, ...}) =
   let (*val _ = map (Syntax.pretty_term ctxt o Thm.term_of) asms |> Pretty.writeln_chunks*)
-      val (clss, symtab, sktab) = asdf asms
+      val (clss, symtab, sktab) = asdf prems
       val cls = ListPair.mapEq recon_info (clss, prems) |> List.concat
       val _ = cls |> List.map #1 |> FTerm.pretty_clauses |> Pretty.writeln
       val mat = Matrix.empty 10000
       val _ = Matrix.insert_clauses mat cls
       (* val _ = PolyML.makestring mat |> writeln; *)
       val _ = case prove_some mat 10 of
-          SOME p => (@{print} p; FOL_to_HOL.reconstruct ctxt symtab p |> map (Display.pretty_thm ctxt) |> Pretty.writeln_chunks; raise Solved)
+          SOME p => (@{print} p; FOL_to_HOL.reconstruct ctxt symtab sktab p |> map (Display.pretty_thm ctxt) |> Pretty.writeln_chunks; raise Solved)
         | NONE => writeln "Sorry, no proof found."
   in all_tac
   end
