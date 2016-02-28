@@ -177,32 +177,69 @@ fun inst_spec ct th =
 
 exception Unsubst
 
-fun unsubst (maps as (symmap, skmap)) (t as FTerm.A (f, args)) (acc as (tmmap, ctxt)) =
-      (*f is a Skolem symbol*)
-      if List.exists (fn (_, (syms, _)) => member (op =) syms f) skmap then
-        (case List.find (fn (fo, ho) => fo = t) tmmap of
-          SOME (_, ho) => (ho, acc)
-        | NONE => raise Unsubst)
-      else
-        let val f' = case Termmap.backward (symmap, f) of SOME ho => ho | NONE => raise Fail "unsubst"
-            val (args', acc') = fold_map (unsubst maps) args acc
-        in  (list_comb (f', args'), acc')
-        end
-  | unsubst maps (t as FTerm.V v) (acc as (tmmap, ctxt)) =
+fun dest_skolem f symmap =
+  let val t = Termmap.backward (symmap, f)
+  in
+    case t of
+      SOME (Const (x, _)) => SOME x
+    | SOME (Const (x, _) $ _) => SOME x
+    | _ => NONE
+  end
+
+fun invent_universal v (tmmap, ctxt) =
+  let (*TODO: Perhaps we need to do more here? See Isar Implementation manual, p. 119 *)
+      val (var, ctxt') = Variable.variant_fixes [Int.toString v] ctxt
+      val t' = Syntax.read_term ctxt' (the_single var)
+      val tmmap' = (FTerm.V v, t') :: tmmap
+  in (t', (tmmap', ctxt'))
+  end
+
+fun unsubst (maps as (symmap, skmap)) (t as FTerm.A (f, args)) (acc as (tmmap, _)) =
+      let val ft = dest_skolem f symmap
+      in
+        (*f is a Skolem symbol*)
+        if Option.isSome ft andalso List.exists (fn (_, (syms, _)) => member (op =) syms (Option.valOf ft)) skmap then
+          (case AList.lookup (op =) tmmap t  of
+            SOME ho => (ho, acc)
+          | NONE => raise Unsubst)
+        else
+          let val f' = case Termmap.backward (symmap, f) of SOME ho => ho | NONE => raise Fail "unsubst"
+              val (args', acc') = fold_map (unsubst maps) args acc
+          in  (list_comb (f', args'), acc')
+          end
+      end
+  | unsubst _ (t as FTerm.V v) (acc as (tmmap, _)) =
       case AList.lookup (op =) tmmap t of
         SOME tm => (tm, acc)
-      | NONE =>
-          (*TODO: Perhaps we need to do more here? See Isar Implementation manual, p. 119 *)
-          let val (var, ctxt') = Variable.variant_fixes [Int.toString v] ctxt
-              val t' = Syntax.read_term ctxt' (the_single var)
-          in (t', (tmmap, ctxt'))
-          end
+      | NONE => invent_universal v acc
 
-(*We need two mappings: one from (int * thm) to thm (thmap), and
-  one from FTerm.term to Isabelle terms (tmmap), containing Skolem terms *)
-(*Do we need to traverse the substitution transitively?*)
+fun fill_sub off vars sub =
+  let
+    fun f i acc =
+      case AList.lookup (op =) sub i of
+        SOME t => (t, acc)
+      | NONE => invent_universal i acc
+  in
+    fold_map f (off upto off + vars - 1)
+  end
+
+
+(*Fold over quantifiers of a formula.
+  If existential, instantiate via snippet.
+  If universal, get from substitution
+*)
+
+
+(*We need two mappings:
+  - one from (int * thm) to thm (thmap), and
+  - one from FTerm.term to Isabelle terms (tmmap), containing Skolem terms *)
 fun treat_res (symtab, sktab, sub) (res as (lit, (off, (_, _, vars, (i, thm))))) ((ctxt, thmap, tmmap), todo) =
-  let val th_subs = get_subs off vars sub
+  let
+    val th_subs = get_subs off vars sub
+    val maps = (symtab, sktab)
+    val (th_subs', (tmmap', ctxt')) = fold_map (fn (v, t) => fn acc => let val (t', acc') = unsubst maps t acc in ((v, t'), acc') end) th_subs (tmmap, ctxt)
+    val th_subs'' = fill_sub off vars th_subs'
+    (* TODO: fill up new substitution by fixing new variables for missing entries *)
   in
     (* TODO: fail if Skolem variables in substitution that are not in mapping *)
     if length th_subs = vars then

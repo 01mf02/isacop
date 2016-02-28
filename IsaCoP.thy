@@ -264,7 +264,6 @@ ML {*
   val final_res = singleton (Proof_Context.export ctxt4 ctxt1) res;
 *}
 
-
 (* You can read off the index of the conjunct that is used from an assumption. *)
 lemma " \<not>b \<or> \<not>hashek \<Longrightarrow> a \<and> b \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
