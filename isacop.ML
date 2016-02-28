@@ -165,8 +165,12 @@ fun conv_term _ (FTerm.V v) = Bound v
 fun destResolution (leanCoP.Resolution r) = SOME r
   | destResolution _ = NONE
 
+
+
 fun get_subs off vars =
      filter (fn (v, _) => off <= v andalso v < off + vars)
+     (*if substitution does not contain binding for variable, create one to itself*)
+  #> union (fn ((u, _), (v, _)) => u = v) (map (fn v => (v, FTerm.V v)) (off upto off + vars - 1))
   #> sort (prod_ord int_ord (K EQUAL))
   #> rev
 
@@ -177,19 +181,6 @@ fun obtain_ex th ctxt =
   let val ((x, th'), ctxt') = Obtain.result (fn _ => etac @{thm exE} 1) [th] ctxt
   in ((the_single x, the_single th'), ctxt')
   end
-
-(*Go through substitution.
-  If a term is mapped to an application A (f, fa)
-    If f is a Skolem symbol
-      If A (f, fa) is in tmmap, return tmmap entry
-      Else fail
-    Else recurse into fa and replace stuff there
-  Else (term is mapped to a variable v)
-    If v is in substitution
-      Handle substitute for v
-    Else
-      Fix a new variable for v and return it
-*)
 
 exception Unsubst
 
@@ -230,22 +221,16 @@ fun unsubst (maps as (symmap, skmap)) (t as FTerm.A (f, args)) (acc as (tmmap, _
         SOME tm => (tm, acc)
       | NONE => invent_universal v acc
 
-(* TODO: merge this with get_sub *)
-fun fill_sub off vars sub (tmmap, ctxt) =
-  let
-    fun f i acc =
-      case AList.lookup (op =) sub i of
-        SOME t => (t, acc)
-      | NONE => invent_universal i acc
-  in
-    fold_map f (off upto off + vars - 1) (tmmap, ctxt)
-  end
-
-
-(*Fold over quantifiers of a formula.
-  If existential, instantiate via snippet.
-  If universal, get from substitution
+(*Reconstruction of Skolem terms:
+  To update the tmmap with witnesses of existential quantifiers,
+  we need to recreate FO terms that represent the FO Skolem terms,
+  correctly instantiated.
+  To do this, we need to:
+  - Construct filled FO substitution. Done!
+  - Pass FO substitution to treat_quant.
+  - Profit!
 *)
+
 
 (* TODO: give this function also the tmmap, and save new variable x together with original FTerm *)
 (* for this, pass also FTerms that were used as Skolem terms *)
@@ -257,6 +242,9 @@ fun treat_quant Skolemisation.All (th, sub::substs, ctxt) =
       in (th', substs, ctxt')
       end
 
+fun fold_map_snd f =
+  fold_map (fn (x, y) => fn acc => let val (y', acc') = f y acc in ((x, y'), acc') end)
+
 (*We need two mappings:
   - one from (int * thm) to thm (thmap), and
   - one from FTerm.term to Isabelle terms (tmmap), containing Skolem terms *)
@@ -264,19 +252,19 @@ fun treat_res (symtab, sktab, sub) (res as (lit, (off, (_, _, vars, (i, skm as (
   let
     val th_subs = get_subs off vars sub
     val maps = (symtab, sktab)
-    val (th_subs', (tmmap', ctxt')) = fold_map (fn (v, t) => fn acc => let val (t', acc') = unsubst maps t acc in ((v, t'), acc') end) th_subs (tmmap, ctxt)
-    val (th_subs'', (tmmap'', ctxt'')) = fill_sub off vars th_subs' (tmmap', ctxt')
+    val (th_subs', (tmmap', ctxt')) = fold_map_snd (unsubst maps) th_subs (tmmap, ctxt)
   in
     (* TODO: fail if Skolem variables in substitution that are not in mapping *)
     if length th_subs = vars then
-      let val (inst', [], ctxt''') = fold treat_quant (map #1 quants) (thm, th_subs'', ctxt'')
+      let val (inst', all, ctxt''') = fold treat_quant (map #1 quants) (thm, map snd th_subs', ctxt')
+          val _ = if all <> [] then raise Fail "remaining all instances" else ()
       in ((ctxt''', ((i, skm), inst') :: thmap, tmmap), todo)
       end
     else
       ((ctxt, thmap, tmmap), res :: todo)
   end
 
-fun iterate f acc [] = acc
+fun iterate _ acc [] = acc
   | iterate f acc todo =
       let val (acc', todo') = fold f todo (acc, [])
       in
@@ -287,8 +275,9 @@ fun iterate f acc [] = acc
 
 fun reconstruct ctxt symtab sktab (sub, prf) =
   let
+    val sub' = Subst.normalise sub
     val res = map_filter destResolution prf
-    val (ctxt', thmap, tmmap) = iterate (treat_res (symtab, sktab, sub)) (ctxt, [], []) res
+    val (ctxt', thmap, tmmap) = iterate (treat_res (symtab, sktab, sub')) (ctxt, [], []) res
   in (map snd thmap)
   end
 

@@ -142,7 +142,19 @@ val empty = []
 
 end
 
-structure Subst =
+signature SUBST =
+sig
+
+include MORPHISM
+
+type subst
+
+val transitive : subst -> FTerm.term -> FTerm.term
+val normalise : subst -> subst
+
+end
+
+structure Subst : SUBST =
 struct
 
 open ListMorphism
@@ -152,7 +164,7 @@ type subst = (FTerm.variable, FTerm.term) morphism
 fun transitive sub =
   FTerm.mapVars (fn v => ListMorphism.map (FTerm.V v) (transitive sub) sub v)
 
-fun normalise sub = map (fn (v, t) => (v, transitive sub t))
+fun normalise sub = List.map (fn (v, t) => (v, transitive sub t)) sub
 
 end
 
