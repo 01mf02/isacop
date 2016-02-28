@@ -253,16 +253,11 @@ fun treat_res (symtab, sktab, sub) (res as (lit, (off, (_, _, vars, (i, skm as (
     val th_subs = get_subs off vars sub
     val maps = (symtab, sktab)
     val (th_subs', (tmmap', ctxt')) = fold_map_snd (unsubst maps) th_subs (tmmap, ctxt)
-  in
-    (* TODO: fail if Skolem variables in substitution that are not in mapping *)
-    if length th_subs = vars then
-      let val (inst', all, ctxt''') = fold treat_quant (map #1 quants) (thm, map snd th_subs', ctxt')
-          val _ = if all <> [] then raise Fail "remaining all instances" else ()
-      in ((ctxt''', ((i, skm), inst') :: thmap, tmmap), todo)
-      end
-    else
-      ((ctxt, thmap, tmmap), res :: todo)
+    val (inst', all, ctxt'') = fold treat_quant (map #1 quants) (thm, map snd th_subs', ctxt')
+    val _ = if all <> [] then raise Fail "remaining all instances" else ()
+  in ((ctxt'', ((i, skm), inst') :: thmap, tmmap), todo)
   end
+  handle Unsubst => ((ctxt, thmap, tmmap), res :: todo)
 
 fun iterate _ acc [] = acc
   | iterate f acc todo =
