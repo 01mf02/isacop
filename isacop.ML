@@ -173,6 +173,11 @@ fun get_subs off vars =
 fun inst_spec ct th =
   th RS (instantiate' [SOME (Thm.ctyp_of_cterm ct)] [NONE, SOME ct] @{thm spec})
 
+fun obtain_ex th ctxt =
+  let val ((x, th'), ctxt') = Obtain.result (fn _ => etac @{thm exE} 1) [th] ctxt
+  in ((the_single x, the_single th'), ctxt')
+  end
+
 (*Go through substitution.
   If a term is mapped to an application A (f, fa)
     If f is a Skolem symbol
@@ -242,10 +247,15 @@ fun fill_sub off vars sub (tmmap, ctxt) =
   If universal, get from substitution
 *)
 
+(* TODO: give this function also the tmmap, and save new variable x together with original FTerm *)
+(* for this, pass also FTerms that were used as Skolem terms *)
 fun treat_quant Skolemisation.All (th, sub::substs, ctxt) =
       (inst_spec (Thm.cterm_of ctxt sub) th, substs, ctxt)
   | treat_quant Skolemisation.All (_, [], _) = raise Fail "not enough All instances"
-  | treat_quant Skolemisation.Ex  (th, substs, ctxt) = (th, substs, ctxt)
+  | treat_quant Skolemisation.Ex  (th, substs, ctxt) =
+      let val ((x, th'), ctxt') = obtain_ex th ctxt
+      in (th', substs, ctxt')
+      end
 
 (*We need two mappings:
   - one from (int * thm) to thm (thmap), and
