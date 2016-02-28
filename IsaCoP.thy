@@ -244,6 +244,25 @@ proof -
   show ?thesis using exE[OF all1 block] .
 qed
 
+(*A real life-saver!*)
+(*Taken from: https://lists.cam.ac.uk/pipermail/cl-isabelle-users/2010-February/msg00132.html*)
+ML {*
+  val ctxt1 = @{context};
+  val cert = Thm.cterm_of ctxt1;
+
+  val (_, ctxt2) = ctxt1 |> Variable.add_fixes ["P", "f"];
+  val [A, C] = Syntax.read_props ctxt2 ["EX x. P (f (x))", "EX y. P(y)"];
+  val ([a], ctxt3) = ctxt2
+    |> Variable.declare_term A
+    |> Variable.declare_term C
+    |> Assumption.add_assumes [cert A];
+
+  val ((xs, [b]), ctxt4) = ctxt3
+    |> Obtain.result (fn _ => etac @{thm exE} 1) [a];
+
+  val res = Goal.prove ctxt4 [] [] C (fn _ => rtac @{thm exI} 1 THEN rtac b 1);
+  val final_res = singleton (Proof_Context.export ctxt4 ctxt1) res;
+*}
 
 
 (* You can read off the index of the conjunct that is used from an assumption. *)
