@@ -40,25 +40,35 @@ end
 structure Skolemisation =
 struct
 
-type mapping = thm * (string list * term)
+datatype quant_type = All | Ex
+
+(* all/ex, (name, type) *)
+type quant_info = quant_type * (string * typ)
+(* theorem, (quantifiers, Skolem names, term without quantifiers *)
+type mapping = thm * (quant_info list * string list * term)
 type table = mapping list
 
+fun quant_of @{const_name "All"} = SOME All
+  | quant_of @{const_name "Ex" } = SOME Ex
+  | quant_of _ = NONE
+
 fun strip_quants quants (Const (quant, _) $ Abs (x, T, t)) =
-      if quant = @{const_name "All"} orelse quant = @{const_name "Ex"} then
-        strip_quants ((quant, (x, T)) :: quants) t
-      else (List.rev quants, t)
+      (case quant_of quant of
+        SOME q => strip_quants ((q, (x, T)) :: quants) t
+      | NONE => (List.rev quants, t))
   | strip_quants quants t = (List.rev quants, t)
 
 fun map_bndvars f = map_aterms (fn t => case t of Bound i => f i | _ => t)
 
 fun skolemise_term all ex (((quant, (x, _)), quanti) :: quants) t ctxt =
-  if quant = @{const_name "All"} then skolemise_term (quanti :: all) ex quants t ctxt
-  else
-    let val (name, ctxt') = Name.variant (Name.skolem x) ctxt
-        val skolem = list_comb (Const (name, dummyT), List.map Bound (rev all))
-        val t' = map_bndvars (fn i => if i = quanti then skolem else Bound i) t
-    in skolemise_term all (name :: ex) quants t' ctxt'
-    end
+  (case quant of
+    All => skolemise_term (quanti :: all) ex quants t ctxt
+  | Ex =>
+      let val (name, ctxt') = Name.variant (Name.skolem x) ctxt
+          val skolem = list_comb (Const (name, dummyT), List.map Bound (rev all))
+          val t' = map_bndvars (fn i => if i = quanti then skolem else Bound i) t
+      in skolemise_term all (name :: ex) quants t' ctxt'
+      end)
   | skolemise_term _ ex [] t ctxt = ((rev ex, t), ctxt)
 
 fun strip_trueprop (Const (@{const_name "Trueprop"}, _) $ t) = t
@@ -69,8 +79,8 @@ fun skolemise_assm assm ctxt =
     val t = assm |> Thm.concl_of |> strip_trueprop
     val (quants, bare) = strip_quants [] t
     val quants' = quants ~~ ((List.length quants - 1) downto 0)
-    val (sk, ctxt') = skolemise_term [] [] quants' bare ctxt
-  in ((assm, sk), ctxt')
+    val ((ex, sk), ctxt') = skolemise_term [] [] quants' bare ctxt
+  in ((assm, (quants, ex, sk)), ctxt')
   end
 
 fun skolemise_assms assms = fold_map skolemise_assm assms Name.context
@@ -198,7 +208,7 @@ fun unsubst (maps as (symmap, skmap)) (t as FTerm.A (f, args)) (acc as (tmmap, _
       let val ft = dest_skolem f symmap
       in
         (*f is a Skolem symbol*)
-        if Option.isSome ft andalso List.exists (fn (_, (syms, _)) => member (op =) syms (Option.valOf ft)) skmap then
+        if Option.isSome ft andalso List.exists (fn (_, (_, syms, _)) => member (op =) syms (Option.valOf ft)) skmap then
           (case AList.lookup (op =) tmmap t  of
             SOME ho => (ho, acc)
           | NONE => raise Unsubst)
@@ -228,6 +238,8 @@ fun fill_sub off vars sub =
   If existential, instantiate via snippet.
   If universal, get from substitution
 *)
+
+(*fun treat_quants t =*)
 
 
 (*We need two mappings:
@@ -309,7 +321,7 @@ fun recon_info (cls, prem) = map_index (fn (i, cl) => (cl, (i, prem))) cls
 fun asdf asms =
   let (*val _ = map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks*)
     val (skolemised, _) = Skolemisation.skolemise_assms asms
-    val clausified = map HOL_to_FOL.clausify (map (#2 o #2) skolemised)
+    val clausified = map HOL_to_FOL.clausify (map (#3 o #2) skolemised)
     val (symm, _) = Termmap.insert (Termmap.empty 10000, @{const hashek})
     val (clss, symtab) = HOL_to_FOL.conv_asms clausified symm
   in (clss, symtab, skolemised)
