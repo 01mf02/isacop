@@ -146,7 +146,8 @@ end
 signature FOL_TO_HOL =
 sig
 
-val reconstruct : Proof.context -> Termmap.bimap -> Skolemisation.table -> Subst.subst * (int * thm) leanCoP.proof -> thm list
+val reconstruct : Proof.context -> Termmap.bimap -> Skolemisation.table ->
+  Subst.subst * (int * Skolemisation.mapping) leanCoP.proof -> thm list
 
 end
 
@@ -197,7 +198,8 @@ fun dest_skolem f symmap =
   end
 
 fun invent_universal v (tmmap, ctxt) =
-  let (*TODO: Perhaps we need to do more here? See Isar Implementation manual, p. 119 *)
+  let (*TODO: Perhaps we need to do more here? (Making type most general?)
+        See Isar Implementation manual, p. 119 *)
       val (var, ctxt') = Variable.variant_fixes [Int.toString v] ctxt
       val t' = Syntax.read_term ctxt' (the_single var)
       val tmmap' = (FTerm.V v, t') :: tmmap
@@ -223,14 +225,15 @@ fun unsubst (maps as (symmap, skmap)) (t as FTerm.A (f, args)) (acc as (tmmap, _
         SOME tm => (tm, acc)
       | NONE => invent_universal v acc
 
-fun fill_sub off vars sub =
+(* TODO: merge this with get_sub *)
+fun fill_sub off vars sub (tmmap, ctxt) =
   let
     fun f i acc =
       case AList.lookup (op =) sub i of
         SOME t => (t, acc)
       | NONE => invent_universal i acc
   in
-    fold_map f (off upto off + vars - 1)
+    fold_map f (off upto off + vars - 1) (tmmap, ctxt)
   end
 
 
@@ -239,24 +242,25 @@ fun fill_sub off vars sub =
   If universal, get from substitution
 *)
 
-(*fun treat_quants t =*)
-
+fun treat_quant Skolemisation.All (th, sub::substs, ctxt) =
+      (inst_spec (Thm.cterm_of ctxt sub) th, substs, ctxt)
+  | treat_quant Skolemisation.All (_, [], _) = raise Fail "not enough All instances"
+  | treat_quant Skolemisation.Ex  (th, substs, ctxt) = (th, substs, ctxt)
 
 (*We need two mappings:
   - one from (int * thm) to thm (thmap), and
   - one from FTerm.term to Isabelle terms (tmmap), containing Skolem terms *)
-fun treat_res (symtab, sktab, sub) (res as (lit, (off, (_, _, vars, (i, thm))))) ((ctxt, thmap, tmmap), todo) =
+fun treat_res (symtab, sktab, sub) (res as (lit, (off, (_, _, vars, (i, skm as (thm, (quants, _, _))))))) ((ctxt, thmap, tmmap), todo) =
   let
     val th_subs = get_subs off vars sub
     val maps = (symtab, sktab)
     val (th_subs', (tmmap', ctxt')) = fold_map (fn (v, t) => fn acc => let val (t', acc') = unsubst maps t acc in ((v, t'), acc') end) th_subs (tmmap, ctxt)
-    val th_subs'' = fill_sub off vars th_subs'
-    (* TODO: fill up new substitution by fixing new variables for missing entries *)
+    val (th_subs'', (tmmap'', ctxt'')) = fill_sub off vars th_subs' (tmmap', ctxt')
   in
     (* TODO: fail if Skolem variables in substitution that are not in mapping *)
     if length th_subs = vars then
-      let val inst = fold inst_spec (map (Thm.cterm_of ctxt o conv_term symtab o #2) th_subs) thm
-      in ((ctxt, ((i, thm), inst) :: thmap, tmmap), todo)
+      let val (inst', [], ctxt''') = fold treat_quant (map #1 quants) (thm, th_subs'', ctxt'')
+      in ((ctxt''', ((i, skm), inst') :: thmap, tmmap), todo)
       end
     else
       ((ctxt, thmap, tmmap), res :: todo)
@@ -331,7 +335,7 @@ fun asdf asms =
 fun isacop_focus ({context = ctxt, prems: thm list, concl: cterm, ...}) =
   let (*val _ = map (Syntax.pretty_term ctxt o Thm.term_of) asms |> Pretty.writeln_chunks*)
       val (clss, symtab, sktab) = asdf prems
-      val cls = ListPair.mapEq recon_info (clss, prems) |> List.concat
+      val cls = ListPair.mapEq recon_info (clss, sktab) |> List.concat
       val _ = cls |> List.map #1 |> FTerm.pretty_clauses |> Pretty.writeln
       val mat = Matrix.empty 10000
       val _ = Matrix.insert_clauses mat cls
