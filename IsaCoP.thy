@@ -264,6 +264,13 @@ ML {*
   val final_res = singleton (Proof_Context.export ctxt4 ctxt1) res;
 *}
 
+(* Cezary's example: Here, it is necessary to instantiate one clause partially,
+   before the other clause can be instantiated, to finally fully instantiate
+   the first clause.*)
+lemma "(\<forall>x. \<exists>y. \<not>P(x, y) \<or> \<not>hashek) \<Longrightarrow> \<exists>x. \<forall>y. P(x, y) \<Longrightarrow> False"
+apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
+oops
+
 (* You can read off the index of the conjunct that is used from an assumption. *)
 lemma " \<not>b \<or> \<not>hashek \<Longrightarrow> a \<and> b \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
@@ -274,6 +281,8 @@ apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
 oops
 
 (* TODO: clausification does not work! *)
+(* Actually, the clausification does work! The goal just became trivial.
+   But reconstruction is possible. It is actually trivial as well. *)
 lemma "\<forall>x y. P(x,y) \<Longrightarrow> \<exists>a. \<forall>b. P(a, b)"
 apply (isacop 1)
 oops

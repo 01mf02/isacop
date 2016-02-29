@@ -237,6 +237,65 @@ fun treat_quant Skolemisation.All (th, skolems, prev, (fo, ho)::substs, tmmap, c
 fun fold_map_snd f =
   fold_map (fn (x, y) => fn acc => let val (y', acc') = f y acc in ((x, y'), acc') end)
 
+(*We need to adapt the algorithm to instantiate quantifiers iteratively!
+  Procedure (given a resolution step):
+  - Zip with relevant first-order substitution for all resolution theorems. Done!
+  - Go through quantifiers of resolution term.
+  - If universal -> try to obtain first substitution term (in case of failure -> move to todo)
+  - If existential -> obtain witness and save in tmmap
+  - If no more quantifiers existent -> move to done
+*)
+
+datatype quant_info =
+    (* forall quantifier is mapped to a FO term via substitution *)
+    All of FTerm.term
+    (* existential quantifier has a certain FO identifier *)
+  | Ex of int
+
+fun make_quant_info (Skolemisation.All :: quants) (sub::subs) skolems =
+    All sub :: make_quant_info quants subs skolems
+  | make_quant_info (Skolemisation.Ex :: quants) subs (skolem::skolems) =
+    Ex skolem :: make_quant_info quants subs skolems
+  | make_quant_info [] [] [] = []
+  | make_quant_info _ _ _ = raise Fail "make_quant_info"
+
+(* TODO: It would be best to fold over this, but with some short-fusing mechanism s.t. we can
+   break from the fold. *)
+fun treat_qu (prev, All sub :: quants, th, tmmap, ctxt) =
+      let val hosub = undefined ()
+      in (sub::prev, quants, inst_spec (Thm.cterm_of ctxt hosub) th, tmmap, ctxt)
+      end
+  | treat_qu (prev, Ex sk :: quants, th, tmmap, ctxt) =
+      let val ((x, th'), ctxt') = obtain_ex th ctxt
+          val skt = FTerm.A (sk, rev prev)
+          val tmmap' = (skt, snd x |> Thm.term_of) :: tmmap
+      in (prev, quants, th', tmmap', ctxt')
+      end
+  | treat_qu final = final
+
+fun transform_res symtab sub res =
+  let val (_, (off, (_, _, vars, thinfo))) = res
+      val (i, (thm, (quants, skolems, _))) = thinfo
+      val skolems' = map (fn x => Option.valOf (Termmap.forward (symtab, Skolemisation.skolem_function x))) skolems
+      val subs = get_subs off vars sub
+  in ((i, thm), make_quant_info quants (map snd subs) skolems')
+  end
+
+fun do_while f (continue, acc) = if continue then do_while f (f acc) else acc
+
+fun instantiate_theorems tabs (ctxt, thmap, tmmap, todo) =
+  (false, (ctxt, thmap, tmmap, todo))
+
+fun recon2 ctxt symtab sktab (sub, prf) =
+  let
+    val sub' = Subst.normalise sub
+    val res = map_filter destResolution prf |> map (transform_res symtab sub')
+    val (ctxt', thmap, tmmap, todo) =
+      do_while (instantiate_theorems (symtab, sktab)) (true, (ctxt, [], [], res))
+  in (map snd thmap)
+  end
+
+
 (*We need two mappings:
   - one from (int * thm) to thm (thmap), and
   - one from FTerm.term to Isabelle terms (tmmap), containing Skolem terms *)
