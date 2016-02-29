@@ -259,19 +259,17 @@ fun make_quant_info (Skolemisation.All :: quants) (sub::subs) skolems =
   | make_quant_info [] [] [] = []
   | make_quant_info _ _ _ = raise Fail "make_quant_info"
 
-(* TODO: It would be best to fold over this, but with some short-fusing mechanism s.t. we can
-   break from the fold. *)
-fun treat_qu (prev, All sub :: quants, th, tmmap, ctxt) =
+fun treat_qu (prev, All sub :: quants, th) (tmmap, ctxt, _) =
       let val hosub = undefined ()
-      in (sub::prev, quants, inst_spec (Thm.cterm_of ctxt hosub) th, tmmap, ctxt)
+      in treat_qu (sub::prev, quants, inst_spec (Thm.cterm_of ctxt hosub) th) (tmmap, ctxt, true)
       end
-  | treat_qu (prev, Ex sk :: quants, th, tmmap, ctxt) =
+  | treat_qu (prev, Ex sk :: quants, th) (tmmap, ctxt, _) =
       let val ((x, th'), ctxt') = obtain_ex th ctxt
           val skt = FTerm.A (sk, rev prev)
           val tmmap' = (skt, snd x |> Thm.term_of) :: tmmap
-      in (prev, quants, th', tmmap', ctxt')
+      in treat_qu (prev, quants, th') (tmmap', ctxt', true)
       end
-  | treat_qu final = final
+  | treat_qu thd d = (thd, d)
 
 fun transform_res symtab sub res =
   let val (_, (off, (_, _, vars, thinfo))) = res
@@ -283,16 +281,20 @@ fun transform_res symtab sub res =
 
 fun do_while f (continue, acc) = if continue then do_while f (f acc) else acc
 
-fun instantiate_theorems tabs (ctxt, thmap, tmmap, todo) =
-  (false, (ctxt, thmap, tmmap, todo))
+fun instantiate_theorems tabs (ctxt, tmmap, ths) =
+  let val (ths', (tmmap, ctxt, changed)) = fold_map treat_qu ths (tmmap, ctxt, false)
+  in (changed, (ctxt, tmmap, ths'))
+  end
 
 fun recon2 ctxt symtab sktab (sub, prf) =
   let
     val sub' = Subst.normalise sub
     val res = map_filter destResolution prf |> map (transform_res symtab sub')
-    val (ctxt', thmap, tmmap, todo) =
-      do_while (instantiate_theorems (symtab, sktab)) (true, (ctxt, [], [], res))
-  in (map snd thmap)
+    val skolems = List.map (fn (_, (_, syms, _)) => syms) sktab
+    val thform = List.map (fn ((_, th), quants) => ([], quants, th)) res
+    val (ctxt', tmmap, final) =
+      do_while (instantiate_theorems (symtab, skolems)) (true, (ctxt, [], thform))
+  in (ctxt', tmmap, final)
   end
 
 
@@ -322,7 +324,6 @@ fun iterate _ acc [] = acc
         if List.length todo = List.length todo' then raise (Fail "iterate")
         else iterate f acc' todo'
       end
-
 
 fun reconstruct ctxt symtab sktab (sub, prf) =
   let
