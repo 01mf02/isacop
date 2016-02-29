@@ -60,12 +60,14 @@ fun strip_quants quants (Const (quant, _) $ Abs (x, T, t)) =
 
 fun map_bndvars f = map_aterms (fn t => case t of Bound i => f i | _ => t)
 
+fun skolem_function name = Const (name, dummyT)
+
 fun skolemise_term all ex (((quant, (x, _)), quanti) :: quants) t ctxt =
   (case quant of
     All => skolemise_term (quanti :: all) ex quants t ctxt
   | Ex =>
       let val (name, ctxt') = Name.variant (Name.skolem x) ctxt
-          val skolem = list_comb (Const (name, dummyT), List.map Bound (rev all))
+          val skolem = list_comb (skolem_function name, List.map Bound (rev all))
           val t' = map_bndvars (fn i => if i = quanti then skolem else Bound i) t
       in skolemise_term all (name :: ex) quants t' ctxt'
       end)
@@ -221,26 +223,16 @@ fun unsubst (maps as (symmap, skmap)) (t as FTerm.A (f, args)) (acc as (tmmap, _
         SOME tm => (tm, acc)
       | NONE => invent_universal v acc
 
-(*Reconstruction of Skolem terms:
-  To update the tmmap with witnesses of existential quantifiers,
-  we need to recreate FO terms that represent the FO Skolem terms,
-  correctly instantiated.
-  To do this, we need to:
-  - Construct filled FO substitution. Done!
-  - Pass FO substitution to treat_quant.
-  - Profit!
-*)
-
-
-(* TODO: give this function also the tmmap, and save new variable x together with original FTerm *)
-(* for this, pass also FTerms that were used as Skolem terms *)
-fun treat_quant Skolemisation.All (th, sub::substs, ctxt) =
-      (inst_spec (Thm.cterm_of ctxt sub) th, substs, ctxt)
-  | treat_quant Skolemisation.All (_, [], _) = raise Fail "not enough All instances"
-  | treat_quant Skolemisation.Ex  (th, substs, ctxt) =
+fun treat_quant Skolemisation.All (th, skolems, prev, (fo, ho)::substs, tmmap, ctxt) =
+      (inst_spec (Thm.cterm_of ctxt ho) th, skolems, fo::prev, substs, tmmap, ctxt)
+  | treat_quant Skolemisation.All _ = raise Fail "not enough All instances"
+  | treat_quant Skolemisation.Ex (th, sk::skolems, prev, substs, tmmap, ctxt) =
       let val ((x, th'), ctxt') = obtain_ex th ctxt
-      in (th', substs, ctxt')
+          val skt = FTerm.A (sk, rev prev)
+          val tmmap' = (skt, snd x |> Thm.term_of) :: tmmap
+      in (th', skolems, prev, substs, tmmap', ctxt')
       end
+  | treat_quant Skolemisation.Ex _ = raise Fail "not enough skolems"
 
 fun fold_map_snd f =
   fold_map (fn (x, y) => fn acc => let val (y', acc') = f y acc in ((x, y'), acc') end)
@@ -248,14 +240,19 @@ fun fold_map_snd f =
 (*We need two mappings:
   - one from (int * thm) to thm (thmap), and
   - one from FTerm.term to Isabelle terms (tmmap), containing Skolem terms *)
-fun treat_res (symtab, sktab, sub) (res as (lit, (off, (_, _, vars, (i, skm as (thm, (quants, _, _))))))) ((ctxt, thmap, tmmap), todo) =
+fun treat_res (symtab, sktab, sub) res ((ctxt, thmap, tmmap), todo) =
   let
+    val (lit, (off, (_, _, vars, thinfo))) = res
+    val (i, (thm, (quants, skolems, _))) = thinfo
     val th_subs = get_subs off vars sub
+    val skolems' = map (fn x => Option.valOf (Termmap.forward (symtab, Skolemisation.skolem_function x))) skolems
     val maps = (symtab, sktab)
     val (th_subs', (tmmap', ctxt')) = fold_map_snd (unsubst maps) th_subs (tmmap, ctxt)
-    val (inst', all, ctxt'') = fold treat_quant (map #1 quants) (thm, map snd th_subs', ctxt')
-    val _ = if all <> [] then raise Fail "remaining all instances" else ()
-  in ((ctxt'', ((i, skm), inst') :: thmap, tmmap), todo)
+    val foho = map snd th_subs ~~ map snd th_subs'
+    val (inst', sks, fos, all, tmmap'', ctxt'') = fold treat_quant (map #1 quants) (thm, skolems', [], foho, tmmap', ctxt')
+    val _ = if all <> [] orelse sks <> [] orelse List.length fos <> List.length th_subs
+            then raise Fail "remaining all instances" else ()
+  in ((ctxt'', (thinfo, inst') :: thmap, tmmap''), todo)
   end
   handle Unsubst => ((ctxt, thmap, tmmap), res :: todo)
 
