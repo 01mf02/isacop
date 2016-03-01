@@ -149,8 +149,6 @@ signature FOL_TO_HOL =
 sig
 
 val reconstruct : Proof.context -> Termmap.bimap -> Skolemisation.table ->
-  Subst.subst * (int * Skolemisation.mapping) leanCoP.proof -> thm list
-val recon2 : Proof.context -> Termmap.bimap -> Skolemisation.table ->
   Subst.subst * (int * Skolemisation.mapping) leanCoP.proof ->
   Proof.context * (FTerm.term * term) list * thm list
 
@@ -159,6 +157,7 @@ end
 structure FOL_to_HOL : FOL_TO_HOL =
 struct
 
+(*
 fun conv_sym tab sym = case Termmap.backward (tab, sym) of
       SOME t => t
     | NONE => raise Fail ("conv_sym: " ^ Int.toString sym)
@@ -166,6 +165,7 @@ fun conv_sym tab sym = case Termmap.backward (tab, sym) of
 fun conv_term _ (FTerm.V v) = Bound v
   | conv_term tab (FTerm.A (f, args)) =
     list_comb (conv_sym tab f, map (conv_term tab) args)
+*)
 
 fun destResolution (leanCoP.Resolution r) = SOME r
   | destResolution _ = NONE
@@ -188,66 +188,6 @@ fun obtain_ex th ctxt =
   end
 
 exception Unsubst
-
-fun dest_skolem f symmap =
-  let val t = Termmap.backward (symmap, f)
-  in
-    case t of
-      SOME (Const (x, _)) => SOME x
-    | SOME (Const (x, _) $ _) => SOME x
-    | _ => NONE
-  end
-
-fun invent_universal v (tmmap, ctxt) =
-  let (*TODO: Perhaps we need to do more here? (Making type most general?)
-        See Isar Implementation manual, p. 119 *)
-      val (var, ctxt') = Variable.variant_fixes [Int.toString v] ctxt
-      val t' = Syntax.read_term ctxt' (the_single var)
-      val tmmap' = (FTerm.V v, t') :: tmmap
-  in (t', (tmmap', ctxt'))
-  end
-
-fun unsubst (maps as (symmap, skmap)) (t as FTerm.A (f, args)) (acc as (tmmap, _)) =
-      let val ft = dest_skolem f symmap
-      in
-        (*f is a Skolem symbol*)
-        if Option.isSome ft andalso List.exists (fn (_, (_, syms, _)) => member (op =) syms (Option.valOf ft)) skmap then
-          (case AList.lookup (op =) tmmap t  of
-            SOME ho => (ho, acc)
-          | NONE => raise Unsubst)
-        else
-          let val f' = case Termmap.backward (symmap, f) of SOME ho => ho | NONE => raise Fail "unsubst"
-              val (args', acc') = fold_map (unsubst maps) args acc
-          in  (list_comb (f', args'), acc')
-          end
-      end
-  | unsubst _ (t as FTerm.V v) (acc as (tmmap, _)) =
-      case AList.lookup (op =) tmmap t of
-        SOME tm => (tm, acc)
-      | NONE => invent_universal v acc
-
-fun treat_quant Skolemisation.All (th, skolems, prev, (fo, ho)::substs, tmmap, ctxt) =
-      (inst_spec (Thm.cterm_of ctxt ho) th, skolems, fo::prev, substs, tmmap, ctxt)
-  | treat_quant Skolemisation.All _ = raise Fail "not enough All instances"
-  | treat_quant Skolemisation.Ex (th, sk::skolems, prev, substs, tmmap, ctxt) =
-      let val ((x, th'), ctxt') = obtain_ex th ctxt
-          val skt = FTerm.A (sk, rev prev)
-          val tmmap' = (skt, snd x |> Thm.term_of) :: tmmap
-      in (th', skolems, prev, substs, tmmap', ctxt')
-      end
-  | treat_quant Skolemisation.Ex _ = raise Fail "not enough skolems"
-
-fun fold_map_snd f =
-  fold_map (fn (x, y) => fn acc => let val (y', acc') = f y acc in ((x, y'), acc') end)
-
-(*We need to adapt the algorithm to instantiate quantifiers iteratively!
-  Procedure (given a resolution step):
-  - Zip with relevant first-order substitution for all resolution theorems. Done!
-  - Go through quantifiers of resolution term.
-  - If universal -> try to obtain first substitution term (in case of failure -> move to todo)
-  - If existential -> obtain witness and save in tmmap
-  - If no more quantifiers existent -> move to done
-*)
 
 datatype quant_info =
     (* forall quantifier is mapped to a FO term via substitution *)
@@ -323,7 +263,7 @@ val verify_result =
   List.map (fn (_, quants, th) =>
     case quants of [] => th | _ => raise Fail "quantifiers left to instantiate")
 
-fun recon2 ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
+fun reconstruct ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
   let
     val sub' = Subst.normalise sub
     val res = map_filter destResolution prf |> map (transform_res symtab sub')
@@ -334,53 +274,6 @@ fun recon2 ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
   in
     (ctxt', tmmap, verify_result final)
   end
-
-
-(*We need two mappings:
-  - one from (int * thm) to thm (thmap), and
-  - one from FTerm.term to Isabelle terms (tmmap), containing Skolem terms *)
-fun treat_res (symtab, sktab, sub) res ((ctxt, thmap, tmmap), todo) =
-  let
-    val (lit, (off, (_, _, vars, thinfo))) = res
-    val (i, (thm, (quants, skolems, _))) = thinfo
-    val th_subs = get_subs off vars sub
-    val skolems' = map (fn x => Option.valOf (Termmap.forward (symtab, Skolemisation.skolem_function x))) skolems
-    val maps = (symtab, sktab)
-    val (th_subs', (tmmap', ctxt')) = fold_map_snd (unsubst maps) th_subs (tmmap, ctxt)
-    val foho = map snd th_subs ~~ map snd th_subs'
-    val (inst', sks, fos, all, tmmap'', ctxt'') = fold treat_quant (map #1 quants) (thm, skolems', [], foho, tmmap', ctxt')
-    val _ = if all <> [] orelse sks <> [] orelse List.length fos <> List.length th_subs
-            then raise Fail "remaining all instances" else ()
-  in ((ctxt'', (thinfo, inst') :: thmap, tmmap''), todo)
-  end
-  handle Unsubst => ((ctxt, thmap, tmmap), res :: todo)
-
-fun iterate _ acc [] = acc
-  | iterate f acc todo =
-      let val (acc', todo') = fold f todo (acc, [])
-      in
-        if List.length todo = List.length todo' then raise (Fail "iterate")
-        else iterate f acc' todo'
-      end
-
-fun reconstruct ctxt symtab sktab (sub, prf) =
-  let
-    val sub' = Subst.normalise sub
-    val res = map_filter destResolution prf
-    val (ctxt', thmap, tmmap) = iterate (treat_res (symtab, sktab, sub')) (ctxt, [], []) res
-  in (map snd thmap)
-  end
-
-(*
-- If all term references to foreign Skolem functions are in mapping,
-  instantiate theorem with corresponding terms and
-  add Skolem function reference to mapping (FO_term, HO_term)
-- Else postpone theorem
-- Iterate this procedure over all theorems in extension steps
-- If procedure terminates with non-empty list, fail
-- Map every extension step theorem now to its instantiated version
-  and select the conjunct with the correct assumption number
-*)
 
 end
 
@@ -421,7 +314,7 @@ fun asdf asms =
   end
 
 
-fun isacop_focus ({context = ctxt, prems: thm list, concl: cterm, ...}) =
+fun isacop_focus lim ({context = ctxt, prems: thm list (*, concl: cterm*), ...}) =
   let (*val _ = map (Syntax.pretty_term ctxt o Thm.term_of) asms |> Pretty.writeln_chunks*)
       val (clss, symtab, sktab) = asdf prems
       val cls = ListPair.mapEq recon_info (clss, sktab) |> List.concat
@@ -429,32 +322,35 @@ fun isacop_focus ({context = ctxt, prems: thm list, concl: cterm, ...}) =
       val mat = Matrix.empty 10000
       val _ = Matrix.insert_clauses mat cls
       (* val _ = PolyML.makestring mat |> writeln; *)
-      val _ = case prove_some mat 10 of
-          SOME p => (@{print} p; FOL_to_HOL.recon2 ctxt symtab sktab p |> #3 |> map (Display.pretty_thm ctxt) |> Pretty.writeln_chunks; raise Solved)
+      val _ = case prove_some mat lim of
+          SOME p =>
+           (@{print} p;
+            FOL_to_HOL.reconstruct ctxt symtab sktab p
+            |> #3
+            |> map (Display.pretty_thm ctxt)
+            |> Pretty.writeln_chunks;
+            raise Solved)
         | NONE => writeln "Sorry, no proof found."
   in all_tac
   end
 
 
-fun raw_isacop ctxt =
-  Subgoal.FOCUS isacop_focus ctxt THEN'
+fun raw_isacop lim ctxt =
+  Subgoal.FOCUS (isacop_focus lim) ctxt THEN'
   K all_tac
 
-fun isacop_tac (ctxt:Proof.context) lim =
+fun isacop_tac lim (ctxt:Proof.context) =
   let
-    val start = Timing.start ();
-    val lim = Config.get ctxt depth_limit;
+    (*val start = Timing.start ();*)
+    val lim' = case lim of NONE => Config.get ctxt depth_limit | SOME l => l;
   in
-    Object_Logic.atomize_prems_tac ctxt THEN' Prenex.prepare_tac ctxt THEN' raw_isacop ctxt
+    Object_Logic.atomize_prems_tac ctxt THEN' Prenex.prepare_tac ctxt THEN' raw_isacop lim' ctxt
   end;
 
 val _ =
   Theory.setup
     (Method.setup @{binding isacop}
       (Scan.lift (Scan.option Parse.nat) >>
-        (fn NONE => SIMPLE_METHOD' o blast_tac
-          | SOME lim => (fn ctxt =>
-              (writeln ("IsaCoP with lim = " ^ Int.toString lim);
-              SIMPLE_METHOD' (isacop_tac ctxt lim)))))
+        (fn lim => (fn ctxt => SIMPLE_METHOD' (isacop_tac lim ctxt))))
       "lean connection calculus prover");
 end
