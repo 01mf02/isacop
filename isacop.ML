@@ -252,12 +252,9 @@ datatype quant_info =
     (* existential quantifier has a certain FO identifier *)
   | Ex of int
 
-fun make_quant_info (Skolemisation.All :: quants) (sub::subs) skolems =
-    All sub :: make_quant_info quants subs skolems
-  | make_quant_info (Skolemisation.Ex :: quants) subs (skolem::skolems) =
-    Ex skolem :: make_quant_info quants subs skolems
-  | make_quant_info [] [] [] = []
-  | make_quant_info _ _ _ = raise Fail "make_quant_info"
+fun make_quant_info Skolemisation.All (sub :: subs, skolems) = (All sub, (subs, skolems))
+  | make_quant_info Skolemisation.Ex (subs, skolem :: skolems) = (Ex skolem, (subs, skolems))
+  | make_quant_info _ _ = raise Fail "make_quant_info"
 
 fun treat_qu (prev, All sub :: quants, th) (tmmap, ctxt, _) =
       let val hosub = undefined ()
@@ -276,7 +273,8 @@ fun transform_res symtab sub res =
       val (i, (thm, (quants, skolems, _))) = thinfo
       val skolems' = map (fn x => Option.valOf (Termmap.forward (symtab, Skolemisation.skolem_function x))) skolems
       val subs = get_subs off vars sub
-  in ((i, thm), make_quant_info quants (map snd subs) skolems')
+      val quant_info = fold_map make_quant_info quants (map snd subs, skolems')
+  in ((i, thm), fst quant_info)
   end
 
 fun do_while f (continue, acc) = if continue then do_while f (f acc) else acc
