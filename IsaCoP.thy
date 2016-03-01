@@ -281,6 +281,12 @@ lemma " \<not>b \<or> \<not>hashek \<Longrightarrow> a \<and> b \<Longrightarrow
 apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 oops
 
+(* Damo's Example: Depth 5 is required here! *)
+lemma "a \<or> b \<Longrightarrow> a \<longrightarrow> c(Damo) \<Longrightarrow> b \<longrightarrow> c(Much) \<Longrightarrow> \<exists>person. c(person)"
+apply (isacop 5)
+oops
+
+
 lemma "\<not>b(x) \<or> \<not>hashek \<Longrightarrow> \<forall>y. (b(y)) \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 oops
