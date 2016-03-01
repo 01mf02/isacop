@@ -100,7 +100,7 @@ by blast
 section \<open>Example of the Lemma rule\<close>
 
 lemma "\<not>hashek \<or> p \<or> q \<Longrightarrow> \<not>p \<or> r \<Longrightarrow> \<not>r \<Longrightarrow> \<not>q \<or> p \<Longrightarrow> False"
-apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
+apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 oops
 
 (*
@@ -137,7 +137,7 @@ qed
 section \<open>Example of the Path rule\<close>
 
 lemma "\<not>hashek \<or> p \<Longrightarrow> \<not>p \<or> q \<Longrightarrow> \<not>q \<or> \<not>p \<Longrightarrow> False"
-apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
+apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 oops
 
 (*
@@ -167,7 +167,7 @@ qed
 section \<open>Substitution involving only universal quantifiers\<close>
 
 lemma "\<not>P(a) \<or> \<not>Q(b) \<or> \<not>hashek \<Longrightarrow> \<forall>x. P(x) \<Longrightarrow> \<forall>x. Q(x) \<Longrightarrow> False"
-apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
+apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 oops
 
 (*
@@ -268,16 +268,16 @@ ML {*
    before the other clause can be instantiated, to finally fully instantiate
    the first clause.*)
 lemma "(\<forall>x. \<exists>y. \<not>P(x, y) \<or> \<not>hashek) \<Longrightarrow> \<exists>x. \<forall>y. P(x, y) \<Longrightarrow> False"
-apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
+apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 oops
 
 (* You can read off the index of the conjunct that is used from an assumption. *)
 lemma " \<not>b \<or> \<not>hashek \<Longrightarrow> a \<and> b \<Longrightarrow> False"
-apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
+apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 oops
 
 lemma "\<not>b(x) \<or> \<not>hashek \<Longrightarrow> \<forall>y. (b(y)) \<Longrightarrow> False"
-apply (tactic {* IsaCoP.raw_isacop @{context} 1 *} )
+apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 oops
 
 (* TODO: clausification does not work! *)
