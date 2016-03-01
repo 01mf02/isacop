@@ -62,7 +62,7 @@ struct
 
 val goal_directed = true
 
-(* (lit-arguments, rest-clause, vars) *)
+(* (lit-arguments, rest-clause, vars, data) *)
 type 'a contrapositive = (FTerm.term list * FTerm.clause * int * 'a)
 
 (* for every predicate, store list of possible contrapositives *)

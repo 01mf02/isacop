@@ -157,6 +157,11 @@ end
 structure FOL_to_HOL : FOL_TO_HOL =
 struct
 
+datatype proof =
+    Lemma of term
+  | Path of term
+  | Resolution of term * thm
+
 (*
 fun conv_sym tab sym = case Termmap.backward (tab, sym) of
       SOME t => t
@@ -263,6 +268,16 @@ val verify_result =
   List.map (fn (_, quants, th) =>
     case quants of [] => th | _ => raise Fail "quantifiers left to instantiate")
 
+fun conv_lit (maps, acc) (P, Pa) =
+  let val (sign, P') = if P < 0 then (fn x => FOLogic.not $ x, ~P) else (I, P)
+  in unsub2 maps (FTerm.A (P', Pa)) acc |> fst |> sign
+  end
+
+fun real_recon data (leanCoP.Lemma t) ths = (Lemma (conv_lit data t), ths)
+  | real_recon data (leanCoP.Path t) ths = (Path (conv_lit data t), ths)
+  | real_recon data (leanCoP.Resolution (t, _)) (th::ths) = (Resolution (conv_lit data t, th), ths)
+  | real_recon _ _ _ = raise Fail "real_recon"
+
 fun reconstruct ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
   let
     val sub' = Subst.normalise sub
@@ -271,8 +286,10 @@ fun reconstruct ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
     val thform = List.map (fn ((_, th), quants) => ([], quants, th)) res
     val (ctxt', tmmap, final) =
       do_while (instantiate_theorems (symtab, skolems)) (true, (ctxt, [], thform))
+    val verified = verify_result final
+    val (prf', _) = fold_map (real_recon ((symtab, skolems), (tmmap, ctxt'))) prf verified
   in
-    (ctxt', tmmap, verify_result final)
+    (ctxt', tmmap, verified)
   end
 
 end
