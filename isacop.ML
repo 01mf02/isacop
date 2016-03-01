@@ -148,6 +148,11 @@ end
 signature FOL_TO_HOL =
 sig
 
+datatype proof =
+    Lemma of term
+  | Path of term
+  | Resolution of term * thm
+
 val reconstruct : Proof.context -> Termmap.bimap -> Skolemisation.table ->
   Subst.subst * (int * Skolemisation.mapping) leanCoP.proof ->
   Proof.context * (FTerm.term * term) list * thm list
@@ -286,6 +291,7 @@ fun pretty_step ctxt (Path t) = Pretty.block [Pretty.str "Path: ", Syntax.pretty
       [Pretty.str "Resolution: ", Syntax.pretty_term ctxt t,
        Pretty.str ", ", Display.pretty_thm ctxt th]
 
+(* TODO: export result of reconstruction into original context, see IsaCoP.thy for example. *)
 fun reconstruct ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
   let
     val sub' = Subst.normalise sub
@@ -300,6 +306,58 @@ fun reconstruct ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
   in
     (ctxt', tmmap, verified)
   end
+
+end
+
+structure Reconstruction =
+struct
+
+(*
+let rec recon sub lemmas = function
+    Pat g :: tl -> (ASSUME (Meson.hol_of_literal (ss sub g)), tl)
+  | Lem g :: tl -> find (fun x -> concl x = Meson.hol_of_literal (ss sub g)) lemmas, tl
+  | Res (g, (n, th)) :: tl ->
+    let foldf (found, lms, prf) _ =
+      let (nthm, nprf) = recon sub lms prf in (nthm :: found, nthm :: lms, nprf) in
+
+    (* TODO: Why List.tl here??? Is the clashing literal really always at first position? *)
+    let (ths, nlms, nprf) = List.fold_left foldf ([],lemmas,tl) (List.tl (disjuncts (concl th))) in
+
+    (* from |- t1 \<or> t2 \<or> ... \<or> tn \<or> ..., tm , create |- \<not>t1 \<and> \<not>t2 \<and> ... \<and> \<not>tm \<longrightarrow> tn *)
+    let cth : thm = Meson.make_hol_contrapos(n,th) in
+    (* get rid of implication, obtaining tn *)
+    let hth : thm = if ths = [] then cth else MATCH_MP cth (end_itlist CONJ (rev ths)) in
+
+    (* PART_MATCH : (term -> term) -> thm -> term -> thm *)
+    (* instantiate hth theorem to match the clashing literal *)
+    let ith = PART_MATCH I hth (Meson.hol_of_literal (ss sub g)) in
+
+    (* DISCH ... transforms  A, ~ith |- ith  to  A |- ~ith --> ith *)
+    (* finish_RULE then transforms this to A |- ith *)
+    Meson.finish_RULE (DISCH (hol_negate(concl ith)) ith), nprf
+  | [] -> assert false
+*)
+
+fun flip_polarity (@{const Not} $ t) = t
+  | flip_polarity t = (@{const Not} $ t)
+
+fun recon _ (FOL_to_HOL.Path t :: tl) = (Thm.trivial (undefined t), tl)
+  | recon lemmas (FOL_to_HOL.Lemma t :: tl) =
+      (case List.find (fn x => Thm.concl_of x = t) lemmas of
+        SOME x => (x, tl)
+      | NONE => raise Fail "lemma not found")
+  | recon lemmas (FOL_to_HOL.Resolution (t, th) :: tl) =
+      let
+        fun foldf _ (found, lms, prf) =
+          let val (nthm, nprf) = recon lms prf in (nthm :: found, nthm :: lms, nprf) end
+        (* TODO: List.tl? *)
+        val disjuncts = HOL_to_FOL.dest_disj (Thm.concl_of th)
+        val rest = remove1 (op =) (flip_polarity t) disjuncts
+        val _ = @{assert} (List.length rest = List.length disjuncts - 1)
+        val (ths, nlms, nprf) = fold foldf rest ([], lemmas, tl)
+      in undefined ()
+      end
+  | recon _ _ = raise Fail "recon"
 
 end
 
