@@ -150,6 +150,9 @@ sig
 
 val reconstruct : Proof.context -> Termmap.bimap -> Skolemisation.table ->
   Subst.subst * (int * Skolemisation.mapping) leanCoP.proof -> thm list
+val recon2 : Proof.context -> Termmap.bimap -> Skolemisation.table ->
+  Subst.subst * (int * Skolemisation.mapping) leanCoP.proof ->
+  Proof.context * (FTerm.term * term) list * thm list
 
 end
 
@@ -276,34 +279,36 @@ fun unsub2 (maps as (symmap, skolems)) t (acc as (tmmap, ctxt)) =
       | FTerm.A (f, fa) =>
           (case Termmap.backward (symmap, f) of
             SOME f' =>
-              if member (op =) skolems (fst (strip_comb f')) then raise Unsubst
-              else
-                let val (args', acc') = fold_map (unsub2 maps) fa acc
-                in  (list_comb (f', args'), acc')
-                end
+              (case fst (strip_comb f') of
+                Const (fh, _) => if member (op =) skolems fh then raise Unsubst else ()
+              | _ => ();
+              let val (args', acc') = fold_map (unsub2 maps) fa acc
+              in  (list_comb (f', args'), acc')
+              end)
           | NONE => raise Fail "unknown symbol"
           )
       )
 
 
-fun treat_qu maps (prev, All sub :: quants, th) (tmmap, ctxt, _) =
-      let val (ho, (tmmap', ctxt')) = unsub2 maps sub (tmmap, ctxt)
+fun treat_qu maps (todo as (prev, All sub :: quants, th)) (acc as (tmmap, ctxt, _)) =
+      (let val (ho, (tmmap', ctxt')) = unsub2 maps sub (tmmap, ctxt)
       in treat_qu maps (sub::prev, quants, inst_spec (Thm.cterm_of ctxt ho) th) (tmmap', ctxt', true)
       end
+      handle Unsubst => (todo, acc))
   | treat_qu maps (prev, Ex sk :: quants, th) (tmmap, ctxt, _) =
       let val ((x, th'), ctxt') = obtain_ex th ctxt
           val skt = FTerm.A (sk, rev prev)
           val tmmap' = (skt, snd x |> Thm.term_of) :: tmmap
       in treat_qu maps (prev, quants, th') (tmmap', ctxt', true)
       end
-  | treat_qu _ thd d = (thd, d)
+  | treat_qu _ todo acc = (todo, acc)
 
 fun transform_res symtab sub res =
   let val (_, (off, (_, _, vars, thinfo))) = res
-      val (i, (thm, (quants, skolems, _))) = thinfo
+      val (i, (thm, (quants, skolems, _)) : Skolemisation.mapping) = thinfo
       val skolems' = map (fn x => Option.valOf (Termmap.forward (symtab, Skolemisation.skolem_function x))) skolems
       val subs = get_subs off vars sub
-      val quant_info = fold_map make_quant_info quants (map snd subs, skolems')
+      val quant_info = fold_map make_quant_info (map fst quants) (map snd subs, skolems')
   in ((i, thm), fst quant_info)
   end
 
@@ -314,15 +319,20 @@ fun instantiate_theorems tabs (ctxt, tmmap, ths) =
   in (changed, (ctxt, tmmap, ths'))
   end
 
-fun recon2 ctxt symtab sktab (sub, prf) =
+val verify_result =
+  List.map (fn (_, quants, th) =>
+    case quants of [] => th | _ => raise Fail "quantifiers left to instantiate")
+
+fun recon2 ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
   let
     val sub' = Subst.normalise sub
     val res = map_filter destResolution prf |> map (transform_res symtab sub')
-    val skolems = List.map (fn (_, (_, syms, _)) => syms) sktab
+    val skolems = List.map (fn (_, (_, syms, _)) => syms) sktab |> List.concat
     val thform = List.map (fn ((_, th), quants) => ([], quants, th)) res
     val (ctxt', tmmap, final) =
       do_while (instantiate_theorems (symtab, skolems)) (true, (ctxt, [], thform))
-  in (ctxt', tmmap, final)
+  in
+    (ctxt', tmmap, verify_result final)
   end
 
 
@@ -420,7 +430,7 @@ fun isacop_focus ({context = ctxt, prems: thm list, concl: cterm, ...}) =
       val _ = Matrix.insert_clauses mat cls
       (* val _ = PolyML.makestring mat |> writeln; *)
       val _ = case prove_some mat 10 of
-          SOME p => (@{print} p; FOL_to_HOL.reconstruct ctxt symtab sktab p |> map (Display.pretty_thm ctxt) |> Pretty.writeln_chunks; raise Solved)
+          SOME p => (@{print} p; FOL_to_HOL.recon2 ctxt symtab sktab p |> #3 |> map (Display.pretty_thm ctxt) |> Pretty.writeln_chunks; raise Solved)
         | NONE => writeln "Sorry, no proof found."
   in all_tac
   end
