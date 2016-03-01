@@ -268,15 +268,23 @@ val verify_result =
   List.map (fn (_, quants, th) =>
     case quants of [] => th | _ => raise Fail "quantifiers left to instantiate")
 
-fun conv_lit (maps, acc) (P, Pa) =
+fun conv_lit (sub, maps, acc) (P, Pa) =
   let val (sign, P') = if P < 0 then (fn x => FOLogic.not $ x, ~P) else (I, P)
-  in unsub2 maps (FTerm.A (P', Pa)) acc |> fst |> sign
+      val t = (FTerm.A (P', Pa))
+      val t' = Subst.transitive sub t
+  in unsub2 maps t' acc |> fst |> sign
   end
 
 fun real_recon data (leanCoP.Lemma t) ths = (Lemma (conv_lit data t), ths)
   | real_recon data (leanCoP.Path t) ths = (Path (conv_lit data t), ths)
   | real_recon data (leanCoP.Resolution (t, _)) (th::ths) = (Resolution (conv_lit data t, th), ths)
   | real_recon _ _ _ = raise Fail "real_recon"
+
+fun pretty_step ctxt (Path t) = Pretty.block [Pretty.str "Path: ", Syntax.pretty_term ctxt t]
+  | pretty_step ctxt (Lemma t) = Pretty.block [Pretty.str "Lemma: ", Syntax.pretty_term ctxt t]
+  | pretty_step ctxt (Resolution (t, th)) = Pretty.block
+      [Pretty.str "Resolution: ", Syntax.pretty_term ctxt t,
+       Pretty.str ", ", Display.pretty_thm ctxt th]
 
 fun reconstruct ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
   let
@@ -287,7 +295,8 @@ fun reconstruct ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
     val (ctxt', tmmap, final) =
       do_while (instantiate_theorems (symtab, skolems)) (true, (ctxt, [], thform))
     val verified = verify_result final
-    val (prf', _) = fold_map (real_recon ((symtab, skolems), (tmmap, ctxt'))) prf verified
+    val (prf', _) = fold_map (real_recon (sub', (symtab, skolems), (tmmap, ctxt'))) prf verified
+    val _ = Pretty.writeln_chunks (map (pretty_step ctxt') prf')
   in
     (ctxt', tmmap, verified)
   end
