@@ -191,6 +191,11 @@ proof -
   show ?thesis using 5 .
 qed
 
+section \<open>Proof with all kinds of rules\<close>
+lemma "p \<or> q \<or> \<not>hashek \<Longrightarrow> \<not>q \<or> p \<Longrightarrow> \<not>p \<or> r \<Longrightarrow> \<not>r \<or> \<not>p \<Longrightarrow> False"
+apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
+oops
+
 
 section \<open>More experiments\<close>
 
