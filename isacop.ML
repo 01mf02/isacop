@@ -256,17 +256,47 @@ fun make_quant_info Skolemisation.All (sub :: subs, skolems) = (All sub, (subs, 
   | make_quant_info Skolemisation.Ex (subs, skolem :: skolems) = (Ex skolem, (subs, skolems))
   | make_quant_info _ _ = raise Fail "make_quant_info"
 
-fun treat_qu (prev, All sub :: quants, th) (tmmap, ctxt, _) =
-      let val hosub = undefined ()
-      in treat_qu (sub::prev, quants, inst_spec (Thm.cterm_of ctxt hosub) th) (tmmap, ctxt, true)
+fun invent_universal2 v ctxt =
+  let (*TODO: Perhaps we need to do more here? (Making type most general?)
+        See Isar Implementation manual, p. 119 *)
+      val (var, ctxt') = Variable.variant_fixes [Int.toString v] ctxt
+      val t' = Syntax.read_term ctxt' (the_single var)
+  in (t', ctxt')
+  end
+
+fun unsub2 (maps as (symmap, skolems)) t (acc as (tmmap, ctxt)) =
+  case AList.lookup (op =) tmmap t of
+    SOME ho => (ho, acc)
+  | NONE =>
+      (case t of
+        FTerm.V v =>
+          let val (t', ctxt') = invent_universal2 v ctxt
+          in (t', ((FTerm.V v, t') :: tmmap, ctxt'))
+          end
+      | FTerm.A (f, fa) =>
+          (case Termmap.backward (symmap, f) of
+            SOME f' =>
+              if member (op =) skolems (fst (strip_comb f')) then raise Unsubst
+              else
+                let val (args', acc') = fold_map (unsub2 maps) fa acc
+                in  (list_comb (f', args'), acc')
+                end
+          | NONE => raise Fail "unknown symbol"
+          )
+      )
+
+
+fun treat_qu maps (prev, All sub :: quants, th) (tmmap, ctxt, _) =
+      let val (ho, (tmmap', ctxt')) = unsub2 maps sub (tmmap, ctxt)
+      in treat_qu maps (sub::prev, quants, inst_spec (Thm.cterm_of ctxt ho) th) (tmmap', ctxt', true)
       end
-  | treat_qu (prev, Ex sk :: quants, th) (tmmap, ctxt, _) =
+  | treat_qu maps (prev, Ex sk :: quants, th) (tmmap, ctxt, _) =
       let val ((x, th'), ctxt') = obtain_ex th ctxt
           val skt = FTerm.A (sk, rev prev)
           val tmmap' = (skt, snd x |> Thm.term_of) :: tmmap
-      in treat_qu (prev, quants, th') (tmmap', ctxt', true)
+      in treat_qu maps (prev, quants, th') (tmmap', ctxt', true)
       end
-  | treat_qu thd d = (thd, d)
+  | treat_qu _ thd d = (thd, d)
 
 fun transform_res symtab sub res =
   let val (_, (off, (_, _, vars, thinfo))) = res
@@ -280,7 +310,7 @@ fun transform_res symtab sub res =
 fun do_while f (continue, acc) = if continue then do_while f (f acc) else acc
 
 fun instantiate_theorems tabs (ctxt, tmmap, ths) =
-  let val (ths', (tmmap, ctxt, changed)) = fold_map treat_qu ths (tmmap, ctxt, false)
+  let val (ths', (tmmap, ctxt, changed)) = fold_map (treat_qu tabs) ths (tmmap, ctxt, false)
   in (changed, (ctxt, tmmap, ths'))
   end
 
