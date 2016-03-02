@@ -6,8 +6,9 @@ Tableau prover with proof reconstruction
 
 TODO:
 
-- Fix equality problem: a \<or> b \<equiv> b \<or> a cannot be shown neither by simp nor by auto.
-- Fix case when multiple conjuncts are in clause.
+- Fix case when multiple conjuncts are in clause (in conj_clause_ex).
+- Implement path rule.
+- Fix non-found lemma (in lemma_ex).
 *)
 
 
@@ -362,7 +363,7 @@ fun reorder_disj ctxt =
    (eresolve_tac ctxt @{thms disjE} 1 THEN
     REPEAT (CHANGED (Prenex.simp_tac_only ctxt @{thms disj_simps not_simps} 1)))
 
-(* create p1 \<or> p2 \<or> ... \<or> pn \<or> c, \<not>p1, \<not>p2, ..., \<not>pn |- c *)
+(* create \<not>p1, \<not>p2, ..., \<not>pn, p1 \<or> p2 \<or> ... \<or> pn \<or> c |- c *)
 (* attention: premises are reversed! *)
 fun make_contrapos ctxt prems concl =
   let
@@ -404,14 +405,7 @@ fun recon ctxt _ (FOL_to_HOL.Path t :: tl) = (Thm.trivial (undefined t), tl, ctx
         val _ = @{print} disj_imp_prf
         val disj_prf = Goal.prove ctxt [] [] disj
           (fn _ => resolve_tac ctxt [@{thm mp} OF [disj_imp_prf, th]] 1)
-        val _ = @{print warning} disj_prf
-
-        val equality = Logic.mk_equals (disj, Thm.concl_of th)
-        val _ = Syntax.pretty_term ctxt equality |> Pretty.writeln;
-        val eqprf = Goal.prove ctxt [] [] equality (fn _ => Prenex.simp_tac_only ctxt @{thms disj_simps not_simps} 1)
-        val _ = @{print} "Equality proved"
-        val contra' = if disj <> Thm.concl_of th then rewrite_goals_rule ctxt [eqprf] contra else contra
-        val _ = @{print} "Contra rewritten"
+        (*val _ = @{print warning} disj_prf*)
 
         fun foldf _ (found, lms, prf, ctxt) =
           let val (nthm, nprf, nctxt) = recon ctxt lms prf
@@ -419,7 +413,8 @@ fun recon ctxt _ (FOL_to_HOL.Path t :: tl) = (Thm.trivial (undefined t), tl, ctx
           end
         val (ths, _, nprf, nctxt) = fold foldf rest ([], lemmas, tl, ctxt)
         (*val _ = @{print} (contra, disj_prf, List.rev (th :: ths))*)
-        val tprf = (*case ths of [] => disj_prf | _ =>*) contra' OF (List.rev (th :: ths))
+        (*val _ = @{print warning} contra'*)
+        val tprf = contra OF (ths @ [disj_prf])
         val _ = @{print} tprf
 
         val xx = Thm.implies_intr (Thm.cterm_of nctxt (FOLogic.mk_Trueprop t)) tprf

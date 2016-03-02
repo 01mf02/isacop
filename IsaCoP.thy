@@ -99,7 +99,7 @@ by blast
 
 section \<open>Example of the Lemma rule\<close>
 
-lemma "\<not>hashek \<or> p \<or> q \<Longrightarrow> \<not>p \<or> r \<Longrightarrow> \<not>r \<Longrightarrow> \<not>q \<or> p \<Longrightarrow> False"
+lemma lemma_ex: "\<not>hashek \<or> p \<or> q \<Longrightarrow> \<not>p \<or> r \<Longrightarrow> \<not>r \<Longrightarrow> \<not>q \<or> p \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 oops
 
@@ -167,8 +167,7 @@ qed
 section \<open>Substitution involving only universal quantifiers\<close>
 
 lemma "\<not>P(a) \<or> \<not>Q(b) \<or> \<not>hashek \<Longrightarrow> \<forall>x. P(x) \<Longrightarrow> \<forall>x. Q(x) \<Longrightarrow> False"
-apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
-oops
+by (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 
 (*
 [ ([(0, A (3, []))], Resolution ((~4, [A (5, [])]), [(1, [])], [(~2, [A (3, [])])]))
@@ -198,6 +197,10 @@ oops
 
 lemma "a \<or> b \<or> c \<longrightarrow> c \<or> b \<or> a \<or> c"
 by (tactic {* Reconstruction.reorder_disj @{context} *})
+
+lemma "b(x) \<longrightarrow> b(x)"
+by (tactic {* Reconstruction.reorder_disj @{context} *})
+
 
 lemma "a \<longrightarrow> c \<or> b \<or> a"
 by simp
@@ -289,7 +292,7 @@ lemma "(\<forall>x. \<exists>y. \<not>P(x, y) \<or> \<not>hashek) \<Longrightarr
 by (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 
 (* You can read off the index of the conjunct that is used from an assumption. *)
-lemma " \<not>b \<or> \<not>hashek \<Longrightarrow> a \<and> b \<Longrightarrow> False"
+lemma conj_clause_ex: " \<not>b \<or> \<not>hashek \<Longrightarrow> a \<and> b \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 oops
 
