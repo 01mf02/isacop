@@ -155,7 +155,7 @@ datatype proof =
 
 val reconstruct : Proof.context -> Termmap.bimap -> Skolemisation.table ->
   Subst.subst * (int * Skolemisation.mapping) leanCoP.proof ->
-  Proof.context * (FTerm.term * term) list * thm list
+  Proof.context * (FTerm.term * term) list * thm list * proof list
 
 end
 
@@ -304,7 +304,7 @@ fun reconstruct ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
     val (prf', _) = fold_map (real_recon (sub', (symtab, skolems), (tmmap, ctxt'))) prf verified
     val _ = Pretty.writeln_chunks (map (pretty_step ctxt') prf')
   in
-    (ctxt', tmmap, verified)
+    (ctxt', tmmap, verified, prf')
   end
 
 end
@@ -345,17 +345,26 @@ fun flip_polarity (@{const Not} $ t) = t
 (* attention: premises are reversed! *)
 fun make_contrapos ctxt prems concl =
   let
-    val prems' = map FOLogic.dest_Trueprop prems
-    val concl' = FOLogic.dest_Trueprop concl
+    val _ = @{print} "contrapos start"
+    val prems' = prems
+    val _ = @{print} "prems destroyed"
+    val concl' = concl
+    val _ = @{print} "concl destroyed"
     val disj = List.foldl FOLogic.mk_disj concl' prems' |> FOLogic.mk_Trueprop
+    val _ = @{print} "disj created"
     val negs = map (FOLogic.mk_Trueprop o flip_polarity) prems
-    val goal = List.foldl Logic.mk_implies concl (disj :: negs)
+    val goal = List.foldl Logic.mk_implies (FOLogic.mk_Trueprop concl) (disj :: negs)
     val res = Goal.prove ctxt [] [] goal (fn _ => Prenex.simp_tac_only ctxt @{thms disj_simps not_simps} 1)
   in (disj, res)
   end
 
-val xxy = @{lemma "(a ==> ~a) ==> ~a" "(~a ==> a) ==> a"  by auto}
+val xxy = @{lemma
+  "( a ==> ~a) ==> ~a"
+  "(~a ==>  a) ==>  a"
+  by auto}
 
+
+fun trace msg x = (@{print} msg; @{print} x; x)
 
 fun recon ctxt _ (FOL_to_HOL.Path t :: tl) = (Thm.trivial (undefined t), tl, ctxt)
   | recon ctxt lemmas (FOL_to_HOL.Lemma t :: tl) =
@@ -368,18 +377,31 @@ fun recon ctxt _ (FOL_to_HOL.Path t :: tl) = (Thm.trivial (undefined t), tl, ctx
           let val (nthm, nprf, nctxt) = recon ctxt lms prf in (nthm :: found, nthm :: lms, nprf, nctxt) end
         (* TODO: List.tl? *)
         val negt = flip_polarity t
-        val disjuncts = HOL_to_FOL.dest_disj (Thm.concl_of th)
+        val disjuncts = th |> Thm.concl_of |> FOLogic.dest_Trueprop |> HOL_to_FOL.dest_disj
         val rest = remove1 (op =) negt disjuncts
+        (*val _ = (@{print} (disjuncts, negt))*)
         val _ = @{assert} (List.length rest = List.length disjuncts - 1)
-
+        val _ = @{print} "Before contrapos"
         val (disj, contra) = make_contrapos ctxt rest negt
+        val _ = @{print} "After contrapos"
         val equality = Logic.mk_equals (disj, Thm.concl_of th)
+        val _ = Syntax.pretty_term ctxt equality |> Pretty.writeln;
         val eqprf = Goal.prove ctxt [] [] equality (fn _ => Prenex.simp_tac_only ctxt @{thms disj_simps not_simps} 1)
-        val contra' = rewrite_goals_rule ctxt [eqprf] contra
+        val _ = @{print} "Equality proved"
+        val contra' = if disj <> Thm.concl_of th then rewrite_goals_rule ctxt [eqprf] contra else contra
+        val _ = @{print} "Contra rewritten"
         val (ths, nlms, nprf, nctxt) = fold foldf rest ([], lemmas, tl, ctxt)
         val tprf = contra' OF (th :: ths)
-        val xx = Thm.implies_intr (Thm.cterm_of nctxt negt) tprf
-        val final = Goal.prove nctxt [] [] t (fn _ => resolve_tac nctxt xxy 1)
+        val _ = @{print} tprf
+
+        val xx = Thm.implies_intr (Thm.cterm_of nctxt (FOLogic.mk_Trueprop t)) tprf
+        val _ = @{print tracing} "implication introduced"
+        val _ = @{print} xx
+        val _ = @{print} ("Original problem:")
+        val _ = Syntax.pretty_term ctxt t |> Pretty.writeln
+        val _ = @{print} (th)
+        val final = Goal.prove nctxt [] [] (FOLogic.mk_Trueprop t) (fn _ => resolve_tac nctxt xxy 1)
+        val _ = @{print} "goal proved!"
       in (final, nprf, nctxt)
       end
   | recon _ _ _ = raise Fail "recon"
@@ -433,12 +455,13 @@ fun isacop_focus lim ({context = ctxt, prems: thm list (*, concl: cterm*), ...})
       (* val _ = PolyML.makestring mat |> writeln; *)
       val _ = case prove_some mat lim of
           SOME p =>
-           (@{print} p;
-            FOL_to_HOL.reconstruct ctxt symtab sktab p
-            |> #3
-            |> map (Display.pretty_thm ctxt)
-            |> Pretty.writeln_chunks;
-            raise Solved)
+            let
+              val _ = @{print} p
+              val (ctxt', _, ths, prf) = FOL_to_HOL.reconstruct ctxt symtab sktab p
+              val _ = map (Display.pretty_thm ctxt) ths |> Pretty.writeln_chunks;
+              val (finalth, _, ctxt'') = Reconstruction.recon ctxt' [] (List.rev prf)
+            in raise Solved
+            end
         | NONE => writeln "Sorry, no proof found."
   in all_tac
   end
