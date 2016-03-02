@@ -338,8 +338,8 @@ let rec recon sub lemmas = function
   | [] -> assert false
 *)
 
-fun flip_polarity (@{const Not} $ t) = t
-  | flip_polarity t = (@{const Not} $ t)
+fun flip_polarity (@{const Not} $ t) = (t, true)
+  | flip_polarity t = (@{const Not} $ t, false)
 
 (* create p1 \<or> p2 \<or> ... \<or> pn \<or> c, \<not>p1, \<not>p2, ..., \<not>pn |- c *)
 (* attention: premises are reversed! *)
@@ -352,17 +352,14 @@ fun make_contrapos ctxt prems concl =
     val _ = @{print} "concl destroyed"
     val disj = List.foldl FOLogic.mk_disj concl' prems' |> FOLogic.mk_Trueprop
     val _ = @{print} "disj created"
-    val negs = map (FOLogic.mk_Trueprop o flip_polarity) prems
+    val negs = map (FOLogic.mk_Trueprop o fst o flip_polarity) prems
     val goal = List.foldl Logic.mk_implies (FOLogic.mk_Trueprop concl) (disj :: negs)
     val res = Goal.prove ctxt [] [] goal (fn _ => Prenex.simp_tac_only ctxt @{thms disj_simps not_simps} 1)
   in (disj, res)
   end
 
-val xxy = @{lemma
-  "( a ==> ~a) ==> ~a"
-  "(~a ==>  a) ==>  a"
-  by auto}
-
+val absurd_impl_neg = @{lemma "( a ==> ~a) \<Longrightarrow> ~a" by auto}
+val absurd_impl_pos = @{lemma "(~a ==>  a) \<Longrightarrow>  a" by auto}
 
 fun trace msg x = (@{print} msg; @{print} x; x)
 
@@ -376,7 +373,7 @@ fun recon ctxt _ (FOL_to_HOL.Path t :: tl) = (Thm.trivial (undefined t), tl, ctx
         fun foldf _ (found, lms, prf, ctxt) =
           let val (nthm, nprf, nctxt) = recon ctxt lms prf in (nthm :: found, nthm :: lms, nprf, nctxt) end
         (* TODO: List.tl? *)
-        val negt = flip_polarity t
+        val (negt, wasfalse) = flip_polarity t
         val disjuncts = th |> Thm.concl_of |> FOLogic.dest_Trueprop |> HOL_to_FOL.dest_disj
         val rest = remove1 (op =) negt disjuncts
         (*val _ = (@{print} (disjuncts, negt))*)
@@ -390,7 +387,7 @@ fun recon ctxt _ (FOL_to_HOL.Path t :: tl) = (Thm.trivial (undefined t), tl, ctx
         val _ = @{print} "Equality proved"
         val contra' = if disj <> Thm.concl_of th then rewrite_goals_rule ctxt [eqprf] contra else contra
         val _ = @{print} "Contra rewritten"
-        val (ths, nlms, nprf, nctxt) = fold foldf rest ([], lemmas, tl, ctxt)
+        val (ths, _, nprf, nctxt) = fold foldf rest ([], lemmas, tl, ctxt)
         val tprf = contra' OF (th :: ths)
         val _ = @{print} tprf
 
@@ -399,8 +396,13 @@ fun recon ctxt _ (FOL_to_HOL.Path t :: tl) = (Thm.trivial (undefined t), tl, ctx
         val _ = @{print} xx
         val _ = @{print} ("Original problem:")
         val _ = Syntax.pretty_term ctxt t |> Pretty.writeln
-        val _ = @{print} (th)
-        val final = Goal.prove nctxt [] [] (FOLogic.mk_Trueprop t) (fn _ => resolve_tac nctxt xxy 1)
+        val _ = @{print warning} (th)
+        val absurd_th = if wasfalse then absurd_impl_pos  else absurd_impl_neg
+        val _ = (@{print} "Proving:"; @{print} t; @{print} "with"; @{print} (absurd_th, xx))
+        (*val absurd_inst = absurd_th OF [xx]
+        val _ = @{print} absurd_inst*)
+        val final = Goal.prove nctxt [] [] (FOLogic.mk_Trueprop negt)
+         (fn _ => resolve_tac nctxt [absurd_th] 1 THEN resolve_tac nctxt [xx] 1 THEN assume_tac nctxt 1)
         val _ = @{print} "goal proved!"
       in (final, nprf, nctxt)
       end
@@ -462,14 +464,12 @@ fun isacop_focus lim ({context = ctxt, prems: thm list (*, concl: cterm*), ...})
               val (finalth, _, ctxt'') = Reconstruction.recon ctxt' [] (List.rev prf)
             in raise Solved
             end
-        | NONE => writeln "Sorry, no proof found."
+        | NONE => (writeln "Sorry, no proof found."; K all_tac)
   in all_tac
   end
 
 
-fun raw_isacop lim ctxt =
-  Subgoal.FOCUS (isacop_focus lim) ctxt THEN'
-  K all_tac
+fun raw_isacop lim ctxt = Subgoal.FOCUS (isacop_focus lim) ctxt
 
 fun isacop_tac lim (ctxt:Proof.context) =
   let

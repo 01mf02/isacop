@@ -273,6 +273,27 @@ ML {*
 Reconstruction.make_contrapos @{context} [@{prop "\<not>as"}, @{prop "\<not>qqaas"}] @{prop "\<not>qq"}
 *}
 
+lemma absurd: "( a ==> ~a) \<Longrightarrow> ~a"
+  "(~a ==>  a) \<Longrightarrow>  a"
+  by auto
+
+lemma
+  assumes "p \<Longrightarrow> \<not>p"
+  shows "\<not>p"
+
+apply (rule absurd(1))
+apply (rule assms)
+apply assumption
+done
+lemma
+  assumes "\<not>p \<Longrightarrow> p"
+  shows "p"
+apply (tactic {* resolve_tac @{context} @{thms absurd(2)} 1 THEN resolve_tac @{context} @{thms assms} 1 *} )
+apply (tactic {* assume_tac @{context} 1 *} )
+done
+
+
+
 (* Cezary's example: Here, it is necessary to instantiate one clause partially,
    before the other clause can be instantiated, to finally fully instantiate
    the first clause.*)
