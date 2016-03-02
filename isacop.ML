@@ -388,7 +388,7 @@ fun recon ctxt _ (FOL_to_HOL.Path t :: tl) = (Thm.trivial (undefined t), tl, ctx
         val contra' = if disj <> Thm.concl_of th then rewrite_goals_rule ctxt [eqprf] contra else contra
         val _ = @{print} "Contra rewritten"
         val (ths, _, nprf, nctxt) = fold foldf rest ([], lemmas, tl, ctxt)
-        val tprf = contra' OF (th :: ths)
+        val tprf = contra' OF (List.rev (th :: ths))
         val _ = @{print} tprf
 
         val xx = Thm.implies_intr (Thm.cterm_of nctxt (FOLogic.mk_Trueprop t)) tprf
