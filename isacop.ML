@@ -341,6 +341,19 @@ let rec recon sub lemmas = function
 fun flip_polarity (@{const Not} $ t) = t
   | flip_polarity t = (@{const Not} $ t)
 
+(* create p1 \<or> p2 \<or> ... \<or> pn \<or> c, \<not>p1, \<not>p2, ..., \<not>pn |- c *)
+fun make_contrapos ctxt prems concl =
+  let
+    val prems' = map FOLogic.dest_Trueprop prems
+    val concl' = FOLogic.dest_Trueprop concl
+    val disj = List.foldl FOLogic.mk_disj concl' prems' |> FOLogic.mk_Trueprop
+    val negs = map (FOLogic.mk_Trueprop o flip_polarity) prems
+    val goal = List.foldl Logic.mk_implies concl (disj :: negs)
+    val res = Goal.prove ctxt [] [] goal (fn _ => Prenex.simp_tac_only ctxt @{thms disj_simps not_simps} 1)
+  in res
+  end
+;
+
 fun recon _ (FOL_to_HOL.Path t :: tl) = (Thm.trivial (undefined t), tl)
   | recon lemmas (FOL_to_HOL.Lemma t :: tl) =
       (case List.find (fn x => Thm.concl_of x = t) lemmas of
