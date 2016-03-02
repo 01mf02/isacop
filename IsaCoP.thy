@@ -196,6 +196,18 @@ lemma "p \<or> q \<or> \<not>hashek \<Longrightarrow> \<not>q \<or> p \<Longrigh
 apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 oops
 
+lemma "a \<or> b \<or> c \<longrightarrow> c \<or> b \<or> a \<or> c"
+by (tactic {* Reconstruction.reorder_disj @{context} *})
+
+lemma "a \<longrightarrow> c \<or> b \<or> a"
+by simp
+
+
+lemma
+  assumes "a \<longrightarrow> b"
+  assumes "a"
+  shows "b"
+using impE[OF assms(1) assms(2)] .
 
 section \<open>More experiments\<close>
 
@@ -269,21 +281,22 @@ ML {*
   val final_res = singleton (Proof_Context.export ctxt4 ctxt1) res;
 *}
 
-ML {*
-Reconstruction.make_contrapos @{context} [@{prop "\<not>as"}, @{prop "\<not>qqaas"}] @{prop "\<not>qq"}
-*}
-
 
 (* Cezary's example: Here, it is necessary to instantiate one clause partially,
    before the other clause can be instantiated, to finally fully instantiate
    the first clause.*)
 lemma "(\<forall>x. \<exists>y. \<not>P(x, y) \<or> \<not>hashek) \<Longrightarrow> \<exists>x. \<forall>y. P(x, y) \<Longrightarrow> False"
-apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
-oops
+by (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 
 (* You can read off the index of the conjunct that is used from an assumption. *)
 lemma " \<not>b \<or> \<not>hashek \<Longrightarrow> a \<and> b \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
+oops
+
+(* Syllogism of Felapton *)
+lemma "\<exists>c. Centaur(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> \<not>Vote(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> Intelligent(c) \<Longrightarrow>
+  \<exists>b. Intelligent(b) \<and> \<not>Vote(b)"
+apply (isacop)
 oops
 
 
@@ -294,15 +307,16 @@ oops
 
 
 lemma "\<not>b(x) \<or> \<not>hashek \<Longrightarrow> \<forall>y. (b(y)) \<Longrightarrow> False"
-apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
-oops
+by (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 
 (* TODO: clausification does not work! *)
 (* Actually, the clausification does work! The goal just became trivial.
    But reconstruction is possible. It is actually trivial as well. *)
 lemma "\<forall>x y. P(x,y) \<Longrightarrow> \<exists>a. \<forall>b. P(a, b)"
-apply (isacop 1)
-oops
+by (isacop 1)
+
+
+section \<open>Unsolvable goals\<close>
 
 lemma "\<And>a. \<forall>x. \<exists>y. P(x,y) \<Longrightarrow> \<forall>x. P(f(x),a) \<Longrightarrow> Q(r)"
 apply (isacop 1)

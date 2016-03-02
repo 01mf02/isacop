@@ -354,6 +354,14 @@ let rec recon sub lemmas = function
 fun flip_polarity (@{const Not} $ t) = (t, true)
   | flip_polarity t = (@{const Not} $ t, false)
 
+(* prove theorems of the shape "a \<or> b \<or> c \<longrightarrow> b \<or> c \<or> a \<or> c" *)
+fun reorder_disj ctxt =
+  resolve_tac ctxt @{thms impI} 1 THEN
+  TRY (assume_tac ctxt 1) THEN  (* in case of sth. like a \<longrightarrow> a *)
+  REPEAT
+   (eresolve_tac ctxt @{thms disjE} 1 THEN
+    REPEAT (CHANGED (Prenex.simp_tac_only ctxt @{thms disj_simps not_simps} 1)))
+
 (* create p1 \<or> p2 \<or> ... \<or> pn \<or> c, \<not>p1, \<not>p2, ..., \<not>pn |- c *)
 (* attention: premises are reversed! *)
 fun make_contrapos ctxt prems concl =
@@ -381,9 +389,6 @@ fun recon ctxt _ (FOL_to_HOL.Path t :: tl) = (Thm.trivial (undefined t), tl, ctx
       | NONE => raise Fail "lemma not found")
   | recon ctxt lemmas (FOL_to_HOL.Resolution (t, th) :: tl) =
       let
-        fun foldf _ (found, lms, prf, ctxt) =
-          let val (nthm, nprf, nctxt) = recon ctxt lms prf in (nthm :: found, nthm :: lms, nprf, nctxt) end
-        (* TODO: List.tl? *)
         val (negt, wasfalse) = flip_polarity t
         val disjuncts = th |> Thm.concl_of |> FOLogic.dest_Trueprop |> HOL_to_FOL.dest_disj
         val rest = remove1 (op =) negt disjuncts
@@ -392,22 +397,37 @@ fun recon ctxt _ (FOL_to_HOL.Path t :: tl) = (Thm.trivial (undefined t), tl, ctx
         val _ = @{print} "Before contrapos"
         val (disj, contra) = make_contrapos ctxt rest negt
         val _ = @{print} "After contrapos"
+
+        val disj_imp = FOLogic.mk_imp (FOLogic.dest_Trueprop (Thm.concl_of th), FOLogic.dest_Trueprop disj)
+        val _ = @{print} disj_imp
+        val disj_imp_prf = Goal.prove ctxt [] [] (FOLogic.mk_Trueprop disj_imp) (fn _ => reorder_disj ctxt)
+        val _ = @{print} disj_imp_prf
+        val disj_prf = Goal.prove ctxt [] [] disj
+          (fn _ => resolve_tac ctxt [@{thm mp} OF [disj_imp_prf, th]] 1)
+        val _ = @{print warning} disj_prf
+
         val equality = Logic.mk_equals (disj, Thm.concl_of th)
         val _ = Syntax.pretty_term ctxt equality |> Pretty.writeln;
         val eqprf = Goal.prove ctxt [] [] equality (fn _ => Prenex.simp_tac_only ctxt @{thms disj_simps not_simps} 1)
         val _ = @{print} "Equality proved"
         val contra' = if disj <> Thm.concl_of th then rewrite_goals_rule ctxt [eqprf] contra else contra
         val _ = @{print} "Contra rewritten"
+
+        fun foldf _ (found, lms, prf, ctxt) =
+          let val (nthm, nprf, nctxt) = recon ctxt lms prf
+          in (nthm :: found, nthm :: lms, nprf, nctxt)
+          end
         val (ths, _, nprf, nctxt) = fold foldf rest ([], lemmas, tl, ctxt)
-        val tprf = contra' OF (List.rev (th :: ths))
+        (*val _ = @{print} (contra, disj_prf, List.rev (th :: ths))*)
+        val tprf = (*case ths of [] => disj_prf | _ =>*) contra' OF (List.rev (th :: ths))
         val _ = @{print} tprf
 
         val xx = Thm.implies_intr (Thm.cterm_of nctxt (FOLogic.mk_Trueprop t)) tprf
-        val _ = @{print tracing} "implication introduced"
+        val _ = @{print} "implication introduced"
         val _ = @{print} xx
         val _ = @{print} ("Original problem:")
         val _ = Syntax.pretty_term ctxt t |> Pretty.writeln
-        val _ = @{print warning} (th)
+        val _ = @{print} (th)
         val absurd_th = if wasfalse then absurd_impl_pos  else absurd_impl_neg
         val _ = (@{print} "Proving:"; @{print} t; @{print} "with"; @{print} (absurd_th, xx))
         (*val absurd_inst = absurd_th OF [xx]
@@ -459,7 +479,7 @@ fun asdf asms =
 
 val hashek_finish = @{lemma "~hashek ==> False" by (simp add: hashek_def)}
 
-fun isacop_focus lim ({context = ctxt, prems: thm list, concl: cterm, ...}) =
+fun raw_isacop lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, concl: cterm, ...} =>
   let (*val _ = map (Syntax.pretty_term ctxt o Thm.term_of) asms |> Pretty.writeln_chunks*)
       val _ = @{print} concl
       val (clss, symtab, sktab) = asdf prems
@@ -468,31 +488,32 @@ fun isacop_focus lim ({context = ctxt, prems: thm list, concl: cterm, ...}) =
       val mat = Matrix.empty 10000
       val _ = Matrix.insert_clauses mat cls
       (* val _ = PolyML.makestring mat |> writeln; *)
-      val _ = case prove_some mat lim of
+      val tac = case prove_some mat lim of
           SOME p =>
             let
               val _ = @{print} p
               val (ctxt', _, ths, prf) = FOL_to_HOL.reconstruct ctxt symtab sktab p
               val _ = map (Display.pretty_thm ctxt) ths |> Pretty.writeln_chunks;
               val (finalth, _, ctxt'') = Reconstruction.recon ctxt' [] (List.rev prf)
+              (*export does not seem to be required, but Isar implementors manual states
+                that it has to be used after an obtain step*)
+              val finalth' = singleton (Proof_Context.export ctxt'' ctxt) finalth
               val _ = @{print} "reconstruction successful!"
-              val fals = hashek_finish OF [finalth]
+              val fals = hashek_finish OF [finalth']
               val _ = @{print} fals
-            in resolve_tac ctxt'' [fals]
+            in resolve_tac ctxt [fals]
             end
-        | NONE => (writeln "Sorry, no proof found."; K all_tac)
-  in all_tac
-  end
-
-
-fun raw_isacop lim ctxt = Subgoal.FOCUS (isacop_focus lim) ctxt
+        | NONE => (writeln "Sorry, no proof found."; K no_tac)
+  in tac 1
+  end)
 
 fun isacop_tac lim (ctxt:Proof.context) =
   let
-    (*val start = Timing.start ();*)
     val lim' = case lim of NONE => Config.get ctxt depth_limit | SOME l => l;
   in
-    Object_Logic.atomize_prems_tac ctxt THEN' Prenex.prepare_tac ctxt THEN' raw_isacop lim' ctxt
+    Object_Logic.atomize_prems_tac ctxt THEN'
+    Prenex.prepare_tac ctxt THEN'
+    raw_isacop lim' ctxt
   end;
 
 val _ =
