@@ -342,6 +342,7 @@ fun flip_polarity (@{const Not} $ t) = t
   | flip_polarity t = (@{const Not} $ t)
 
 (* create p1 \<or> p2 \<or> ... \<or> pn \<or> c, \<not>p1, \<not>p2, ..., \<not>pn |- c *)
+(* attention: premises are reversed! *)
 fun make_contrapos ctxt prems concl =
   let
     val prems' = map FOLogic.dest_Trueprop prems
@@ -350,27 +351,38 @@ fun make_contrapos ctxt prems concl =
     val negs = map (FOLogic.mk_Trueprop o flip_polarity) prems
     val goal = List.foldl Logic.mk_implies concl (disj :: negs)
     val res = Goal.prove ctxt [] [] goal (fn _ => Prenex.simp_tac_only ctxt @{thms disj_simps not_simps} 1)
-  in res
+  in (disj, res)
   end
-;
 
-fun recon _ (FOL_to_HOL.Path t :: tl) = (Thm.trivial (undefined t), tl)
-  | recon lemmas (FOL_to_HOL.Lemma t :: tl) =
+val xxy = @{lemma "(a ==> ~a) ==> ~a" "(~a ==> a) ==> a"  by auto}
+
+
+fun recon ctxt _ (FOL_to_HOL.Path t :: tl) = (Thm.trivial (undefined t), tl, ctxt)
+  | recon ctxt lemmas (FOL_to_HOL.Lemma t :: tl) =
       (case List.find (fn x => Thm.concl_of x = t) lemmas of
-        SOME x => (x, tl)
+        SOME x => (x, tl, ctxt)
       | NONE => raise Fail "lemma not found")
-  | recon lemmas (FOL_to_HOL.Resolution (t, th) :: tl) =
+  | recon ctxt lemmas (FOL_to_HOL.Resolution (t, th) :: tl) =
       let
-        fun foldf _ (found, lms, prf) =
-          let val (nthm, nprf) = recon lms prf in (nthm :: found, nthm :: lms, nprf) end
+        fun foldf _ (found, lms, prf, ctxt) =
+          let val (nthm, nprf, nctxt) = recon ctxt lms prf in (nthm :: found, nthm :: lms, nprf, nctxt) end
         (* TODO: List.tl? *)
+        val negt = flip_polarity t
         val disjuncts = HOL_to_FOL.dest_disj (Thm.concl_of th)
-        val rest = remove1 (op =) (flip_polarity t) disjuncts
+        val rest = remove1 (op =) negt disjuncts
         val _ = @{assert} (List.length rest = List.length disjuncts - 1)
-        val (ths, nlms, nprf) = fold foldf rest ([], lemmas, tl)
-      in undefined ()
+
+        val (disj, contra) = make_contrapos ctxt rest negt
+        val equality = Logic.mk_equals (disj, Thm.concl_of th)
+        val eqprf = Goal.prove ctxt [] [] equality (fn _ => Prenex.simp_tac_only ctxt @{thms disj_simps not_simps} 1)
+        val contra' = rewrite_goals_rule ctxt [eqprf] contra
+        val (ths, nlms, nprf, nctxt) = fold foldf rest ([], lemmas, tl, ctxt)
+        val tprf = contra' OF (th :: ths)
+        val xx = Thm.implies_intr (Thm.cterm_of nctxt negt) tprf
+        val final = Goal.prove nctxt [] [] t (fn _ => resolve_tac nctxt xxy 1)
+      in (final, nprf, nctxt)
       end
-  | recon _ _ = raise Fail "recon"
+  | recon _ _ _ = raise Fail "recon"
 
 end
 

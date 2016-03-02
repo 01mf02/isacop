@@ -269,6 +269,10 @@ ML {*
   val final_res = singleton (Proof_Context.export ctxt4 ctxt1) res;
 *}
 
+ML {*
+Reconstruction.make_contrapos @{context} [@{prop "\<not>as"}, @{prop "\<not>qqaas"}] @{prop "\<not>qq"}
+*}
+
 (* Cezary's example: Here, it is necessary to instantiate one clause partially,
    before the other clause can be instantiated, to finally fully instantiate
    the first clause.*)
