@@ -9,6 +9,7 @@ TODO:
 - Fix case when multiple conjuncts are in clause (in conj_clause_ex).
 - Implement path rule.
 - Fix non-found lemma (in lemma_ex).
+- Fix grounding of variables (in felapton_ex)!!
 *)
 
 

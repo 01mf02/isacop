@@ -95,7 +95,9 @@ fun app_rest _ _ [] = ()
 local
   fun insert_contrapositive mat max_var info ((p,tl), rest) =
     let val n = nat_of_int p
-        val nohashek = List.filter (fn l => l <> hashek_lit) rest
+        (* TODO: filtering the hashek literal seems to make some proofs incomplete,
+           see e.g. damo_ex *)
+        val nohashek = (*List.filter (fn l => l <> hashek_lit)*) rest
     in  Array.update (mat, n, (tl, nohashek, max_var, info) :: Array.sub (mat, n))
     end
 

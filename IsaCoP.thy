@@ -297,14 +297,14 @@ apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 oops
 
 (* Syllogism of Felapton *)
-lemma "\<exists>c. Centaur(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> \<not>Vote(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> Intelligent(c) \<Longrightarrow>
+lemma felapton_ex: "\<exists>c. Centaur(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> \<not>Vote(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> Intelligent(c) \<Longrightarrow>
   \<exists>b. Intelligent(b) \<and> \<not>Vote(b)"
 apply (isacop)
 oops
 
 
 (* Damo's Example: Depth 5 is required here! *)
-lemma "a \<or> b \<Longrightarrow> a \<longrightarrow> c(Damo) \<Longrightarrow> b \<longrightarrow> c(Much) \<Longrightarrow> \<exists>person. c(person)"
+lemma damo_ex: "a \<or> b \<Longrightarrow> a \<longrightarrow> c(Damo) \<Longrightarrow> b \<longrightarrow> c(Much) \<Longrightarrow> \<exists>person. c(person)"
 apply (isacop 5)
 oops
 
