@@ -1,3 +1,16 @@
+(*  Title:      isaCoP.ML
+    Author:     Michael Färber, Universität Innsbruck
+    Copyright   2016 Michael Färber
+
+Tableau prover with proof reconstruction
+
+TODO:
+
+- Fix equality problem: a \<or> b \<equiv> b \<or> a cannot be shown neither by simp nor by auto.
+- Fix case when multiple conjuncts are in clause.
+*)
+
+
 structure Prenex =
 struct
 
@@ -361,8 +374,6 @@ fun make_contrapos ctxt prems concl =
 val absurd_impl_neg = @{lemma "( a ==> ~a) \<Longrightarrow> ~a" by auto}
 val absurd_impl_pos = @{lemma "(~a ==>  a) \<Longrightarrow>  a" by auto}
 
-fun trace msg x = (@{print} msg; @{print} x; x)
-
 fun recon ctxt _ (FOL_to_HOL.Path t :: tl) = (Thm.trivial (undefined t), tl, ctxt)
   | recon ctxt lemmas (FOL_to_HOL.Lemma t :: tl) =
       (case List.find (fn x => Thm.concl_of x = t) lemmas of
@@ -446,9 +457,11 @@ fun asdf asms =
   in (clss, symtab, skolemised)
   end
 
+val hashek_finish = @{lemma "~hashek ==> False" by (simp add: hashek_def)}
 
-fun isacop_focus lim ({context = ctxt, prems: thm list (*, concl: cterm*), ...}) =
+fun isacop_focus lim ({context = ctxt, prems: thm list, concl: cterm, ...}) =
   let (*val _ = map (Syntax.pretty_term ctxt o Thm.term_of) asms |> Pretty.writeln_chunks*)
+      val _ = @{print} concl
       val (clss, symtab, sktab) = asdf prems
       val cls = ListPair.mapEq recon_info (clss, sktab) |> List.concat
       val _ = cls |> List.map #1 |> FTerm.pretty_clauses |> Pretty.writeln
@@ -462,7 +475,10 @@ fun isacop_focus lim ({context = ctxt, prems: thm list (*, concl: cterm*), ...})
               val (ctxt', _, ths, prf) = FOL_to_HOL.reconstruct ctxt symtab sktab p
               val _ = map (Display.pretty_thm ctxt) ths |> Pretty.writeln_chunks;
               val (finalth, _, ctxt'') = Reconstruction.recon ctxt' [] (List.rev prf)
-            in raise Solved
+              val _ = @{print} "reconstruction successful!"
+              val fals = hashek_finish OF [finalth]
+              val _ = @{print} fals
+            in resolve_tac ctxt'' [fals]
             end
         | NONE => (writeln "Sorry, no proof found."; K all_tac)
   in all_tac
