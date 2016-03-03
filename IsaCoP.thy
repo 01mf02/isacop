@@ -112,6 +112,10 @@ lemma felapton_ex: "\<exists>c. Centaur(c) \<Longrightarrow> \<forall>c. Centaur
   \<exists>b. Intelligent(b) \<and> \<not>Vote(b)"
 by (isacop)
 
+(* Damo's Example: Depth 5 is required here! *)
+lemma damo_ex: "a \<or> b \<Longrightarrow> a \<longrightarrow> c(Damo) \<Longrightarrow> b \<longrightarrow> c(Much) \<Longrightarrow> \<exists>person. c(person)"
+by (isacop 5)
+
 
 subsection \<open>Substitution involving only universal quantifiers\<close>
 
@@ -140,16 +144,42 @@ proof -
 qed
 
 
+subsection \<open>Example of the Path rule\<close>
+
+lemma "\<not>hashek \<or> p \<Longrightarrow> \<not>p \<or> q \<Longrightarrow> \<not>q \<or> \<not>p \<Longrightarrow> False"
+by (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
+
+(*
+[ ([], Path (~2, []))
+, ([], Resolution ((~3, []), [(2, []), (1, [])], []))
+, ([], Resolution ((2, []), [(1, [])], []))
+, ([], Resolution ((1, []), [], []))
+]
+*)
+
+lemma
+  assumes "\<not>hashek \<or> p"
+  assumes "\<not>p \<or> q"
+  assumes "\<not>q \<or> \<not>p"
+  shows "False"
+proof -
+  have 1: "p" using assms(1) using hashek_def by simp
+  have 2: "\<not>q" using 1 assms(3) by simp
+  have 3: "\<not>p" using 2 assms(2) by simp
+  (* to reconstruct the path rule, we have to reference a fact that was
+     previously proven on the branch *)
+  (* as soon as we have no literal in a clause anymore,
+     we show the thesis *)
+  show ?thesis using 1 3 by contradiction
+qed
+
+
+
 section \<open>Things that do not work yet\<close>
 
 (* You can read off the index of the conjunct that is used from an assumption. *)
 lemma conj_clause_ex: " \<not>b \<or> \<not>hashek \<Longrightarrow> a \<and> b \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
-oops
-
-(* Damo's Example: Depth 5 is required here! *)
-lemma damo_ex: "a \<or> b \<Longrightarrow> a \<longrightarrow> c(Damo) \<Longrightarrow> b \<longrightarrow> c(Much) \<Longrightarrow> \<exists>person. c(person)"
-apply (isacop 5)
 oops
 
 (* Proof with all kinds of rules *)
@@ -193,37 +223,6 @@ proof -
   qed
 
   show ?thesis apply (rule disjE[OF 1 2 3]) .
-qed
-
-
-subsection \<open>Example of the Path rule\<close>
-
-lemma "\<not>hashek \<or> p \<Longrightarrow> \<not>p \<or> q \<Longrightarrow> \<not>q \<or> \<not>p \<Longrightarrow> False"
-apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
-oops
-
-(*
-[ ([], Path (~2, []))
-, ([], Resolution ((~3, []), [(2, []), (1, [])], []))
-, ([], Resolution ((2, []), [(1, [])], []))
-, ([], Resolution ((1, []), [], []))
-]
-*)
-
-lemma
-  assumes "\<not>hashek \<or> p"
-  assumes "\<not>p \<or> q"
-  assumes "\<not>q \<or> \<not>p"
-  shows "False"
-proof -
-  have 1: "p" using assms(1) using hashek_def by simp
-  have 2: "\<not>q" using 1 assms(3) by simp
-  have 3: "\<not>p" using 2 assms(2) by simp
-  (* to reconstruct the path rule, we have to reference a fact that was
-     previously proven on the branch *)
-  (* as soon as we have no literal in a clause anymore,
-     we show the thesis *)
-  show ?thesis using 1 3 by contradiction
 qed
 
 

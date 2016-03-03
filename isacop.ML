@@ -389,8 +389,32 @@ fun make_contrapos ctxt prems concl =
   in (disj, res)
   end
 
-val absurd_impl_neg = @{lemma "( a ==> ~a) \<Longrightarrow> ~a" by auto}
-val absurd_impl_pos = @{lemma "(~a ==>  a) \<Longrightarrow>  a" by auto}
+
+fun is_neg t = case FOLogic.dest_Trueprop t of
+    @{const Not} $ t => (true, t)
+  | t => (false, t)
+
+(*Given "A |- ~a ==>  a", prove "A |-  a" or
+        "A |-  a ==> ~a", prove "A |- ~a"*)
+fun finish_rule ctxt impl =
+  let
+    val left = impl |> Thm.prems_of |> the_single
+    val (left_is_neg, left_unneg) = is_neg left
+    val left_ct = Thm.cterm_of ctxt left
+    val left_th = Thm.assume left_ct
+    val right_th = impl OF [left_th]
+    val anything = @{thm notE} OF (if left_is_neg then [left_th, right_th] else [right_th, left_th])
+    val left_impl_anything = Thm.implies_intr left_ct anything
+    val left_impl_false = Drule.instantiate' [] [SOME @{cterm False}] left_impl_anything
+    (* val _ = @{print} left *)
+    (* val _ = @{print} (FOLogic.dest_Trueprop left) *)
+    val neg_th = if left_is_neg then @{thm ccontr} else @{thm notI}
+    val unneg_ct = Thm.cterm_of ctxt left_unneg
+    val neg_th' = Drule.instantiate' [] [SOME unneg_ct] neg_th
+  in Thm.implies_elim neg_th' left_impl_false
+  end
+
+
 
 fun recon ctxt _ (FOL_to_HOL.Path t :: tl) =
       let val t' = t |> flip_polarity |> fst |> FOLogic.mk_Trueprop
@@ -441,12 +465,13 @@ fun recon ctxt _ (FOL_to_HOL.Path t :: tl) =
         val _ = @{print} ("Original problem:")
         val _ = Syntax.pretty_term ctxt t |> Pretty.writeln
         val _ = @{print} (th)
-        val absurd_th = if wasfalse then absurd_impl_pos else absurd_impl_neg
-        val _ = (@{print} "Proving:"; @{print} t; @{print} "with"; @{print} (absurd_th, xx))
+        (* val absurd_th = if wasfalse then absurd_impl_pos else absurd_impl_neg *)
+        (* val _ = (@{print} "Proving:"; @{print} t; @{print} "with"; @{print} (absurd_th, xx)) *)
         (*val absurd_inst = absurd_th OF [xx]
         val _ = @{print} absurd_inst*)
-        val final = Goal.prove nctxt [] [] (FOLogic.mk_Trueprop negt)
-         (fn _ => resolve_tac nctxt [absurd_th] 1 THEN resolve_tac nctxt [xx] 1 THEN assume_tac nctxt 1)
+        (* val final = Goal.prove nctxt [] [] (FOLogic.mk_Trueprop negt) *)
+         (* (fn _ => resolve_tac nctxt [absurd_th] 1 THEN resolve_tac nctxt [xx] 1 THEN assume_tac nctxt 1) *)
+        val final = finish_rule nctxt xx
         val _ = @{print} "goal proved!"
       in (final, nprf, nctxt)
       end
