@@ -299,8 +299,7 @@ oops
 (* Syllogism of Felapton *)
 lemma felapton_ex: "\<exists>c. Centaur(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> \<not>Vote(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> Intelligent(c) \<Longrightarrow>
   \<exists>b. Intelligent(b) \<and> \<not>Vote(b)"
-apply (isacop)
-oops
+by (isacop)
 
 
 (* Damo's Example: Depth 5 is required here! *)

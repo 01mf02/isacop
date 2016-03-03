@@ -9,7 +9,6 @@ TODO:
 - Fix case when multiple conjuncts are in clause (in conj_clause_ex).
 - Implement path rule.
 - Fix non-found lemma (in lemma_ex).
-- Fix grounding of variables (in felapton_ex)!!
 *)
 
 
@@ -254,9 +253,8 @@ fun unsub2 (maps as (symmap, skolems)) t (acc as (tmmap, ctxt)) =
           )
       )
 
-
 fun treat_qu maps (todo as (prev, All sub :: quants, th)) (acc as (tmmap, ctxt, _)) =
-      (let val (ho, (tmmap', ctxt')) = unsub2 maps sub (tmmap, ctxt)
+     (let val (ho, (tmmap', ctxt')) = unsub2 maps sub (tmmap, ctxt)
       in treat_qu maps (sub::prev, quants, inst_spec (Thm.cterm_of ctxt ho) th) (tmmap', ctxt', true)
       end
       handle Unsubst => (todo, acc))
@@ -280,8 +278,8 @@ fun transform_res symtab sub res =
 fun do_while f (continue, acc) = if continue then do_while f (f acc) else acc
 
 fun instantiate_theorems tabs (ctxt, tmmap, ths) =
-  let val (ths', (tmmap, ctxt, changed)) = fold_map (treat_qu tabs) ths (tmmap, ctxt, false)
-  in (changed, (ctxt, tmmap, ths'))
+  let val (ths', (tmmap', ctxt', changed)) = fold_map (treat_qu tabs) ths (tmmap, ctxt, false)
+  in (changed, (ctxt', tmmap', ths'))
   end
 
 val verify_result =
@@ -306,16 +304,37 @@ fun pretty_step ctxt (Path t) = Pretty.block [Pretty.str "Path: ", Syntax.pretty
       [Pretty.str "Resolution: ", Syntax.pretty_term ctxt t,
        Pretty.str ", ", Display.pretty_thm ctxt th]
 
-(* TODO: export result of reconstruction into original context, see IsaCoP.thy for example. *)
+fun elim_equals eq l =
+  let fun f x (prev, i) = case AList.lookup eq prev x of
+      SOME j => (j, (prev, i))
+    | NONE => (i, ((x, i) :: prev, i + 1))
+  in fold_map f l ([], 0)
+  end;
+
+val _ = @{assert}
+ (elim_equals (op =) ["a", "b", "a", "c"] =
+  ([0, 1, 0, 2], ([("c", 2), ("b", 1), ("a", 0)], 3)))
+
+fun intro_equals l = List.map (fn i => List.nth (l, i))
+
 fun reconstruct ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
   let
     val sub' = Subst.normalise sub
     val res = map_filter destResolution prf |> map (transform_res symtab sub')
     val skolems = List.map (fn (_, (_, syms, _)) => syms) sktab |> List.concat
     val thform = List.map (fn ((_, th), quants) => ([], quants, th)) res
+
+    (*remove duplicate theorems, but save information where they were so
+      we can put them back into their place later
+      otherwise, existentials may be instantiated several times!*)
+    fun thform_eq ((_, q1, th1), (_, q2, th2)) = q1 = q2 andalso Thm.concl_of th1 = Thm.concl_of th2
+    val (is, (thuniq, _)) = elim_equals (thform_eq) thform
+    val thuniq' = List.rev (map fst thuniq)
+
     val (ctxt', tmmap, final) =
-      do_while (instantiate_theorems (symtab, skolems)) (true, (ctxt, [], thform))
-    val verified = verify_result final
+      do_while (instantiate_theorems (symtab, skolems)) (true, (ctxt, [], thuniq'))
+    val final' = intro_equals final is
+    val verified = verify_result final'
     val (prf', _) = fold_map (real_recon (sub', (symtab, skolems), (tmmap, ctxt'))) prf verified
     val _ = Pretty.writeln_chunks (map (pretty_step ctxt') prf')
   in
