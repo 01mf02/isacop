@@ -344,7 +344,6 @@ let rec recon sub lemmas = function
     let foldf (found, lms, prf) _ =
       let (nthm, nprf) = recon sub lms prf in (nthm :: found, nthm :: lms, nprf) in
 
-    (* TODO: Why List.tl here??? Is the clashing literal really always at first position? *)
     let (ths, nlms, nprf) = List.fold_left foldf ([],lemmas,tl) (List.tl (disjuncts (concl th))) in
 
     (* from |- t1 \<or> t2 \<or> ... \<or> tn \<or> ..., tm , create |- \<not>t1 \<and> \<not>t2 \<and> ... \<and> \<not>tm \<longrightarrow> tn *)
@@ -393,7 +392,11 @@ fun make_contrapos ctxt prems concl =
 val absurd_impl_neg = @{lemma "( a ==> ~a) \<Longrightarrow> ~a" by auto}
 val absurd_impl_pos = @{lemma "(~a ==>  a) \<Longrightarrow>  a" by auto}
 
-fun recon ctxt _ (FOL_to_HOL.Path t :: tl) = (Thm.trivial (undefined t), tl, ctxt)
+fun recon ctxt _ (FOL_to_HOL.Path t :: tl) =
+      let val t' = t |> flip_polarity |> fst |> FOLogic.mk_Trueprop
+          val ct = Thm.cterm_of ctxt t'
+      in (Thm.assume ct, tl, ctxt)
+      end
   | recon ctxt lemmas (FOL_to_HOL.Lemma t :: tl) =
       (case List.find (fn x => Thm.concl_of x = t) lemmas of
         SOME x => (x, tl, ctxt)
@@ -413,9 +416,8 @@ fun recon ctxt _ (FOL_to_HOL.Path t :: tl) = (Thm.trivial (undefined t), tl, ctx
         val _ = @{print} disj_imp
         val disj_imp_prf = Goal.prove ctxt [] [] (FOLogic.mk_Trueprop disj_imp) (fn _ => reorder_disj ctxt)
         val _ = @{print} disj_imp_prf
-        val disj_prf = Goal.prove ctxt [] [] disj
-          (fn _ => resolve_tac ctxt [@{thm mp} OF [disj_imp_prf, th]] 1)
-        (*val _ = @{print warning} disj_prf*)
+        val disj_prf = @{thm mp} OF [disj_imp_prf, th]
+        val _ = @{print warning} disj_prf
 
         fun foldf _ (found, lms, prf, ctxt) =
           let val (nthm, nprf, nctxt) = recon ctxt lms prf
@@ -427,13 +429,19 @@ fun recon ctxt _ (FOL_to_HOL.Path t :: tl) = (Thm.trivial (undefined t), tl, ctx
         val tprf = contra OF (ths @ [disj_prf])
         val _ = @{print} tprf
 
+        (* val to_discharge = Thm.cterm_of nctxt (FOLogic.mk_Trueprop t) *)
+        (* val (transform_th, _) = Assumption.assume_export false [to_discharge]; *)
+
         val xx = Thm.implies_intr (Thm.cterm_of nctxt (FOLogic.mk_Trueprop t)) tprf
+        (* val xx = transform_th tprf *)
         val _ = @{print} "implication introduced"
-        val _ = @{print} xx
+        val _ = @{print warning} xx
+        val _ = (Thm.hyps_of xx) |> map (Syntax.pretty_term nctxt) |> Pretty.writeln_chunks
+        val _ = @{print warning} "end"
         val _ = @{print} ("Original problem:")
         val _ = Syntax.pretty_term ctxt t |> Pretty.writeln
         val _ = @{print} (th)
-        val absurd_th = if wasfalse then absurd_impl_pos  else absurd_impl_neg
+        val absurd_th = if wasfalse then absurd_impl_pos else absurd_impl_neg
         val _ = (@{print} "Proving:"; @{print} t; @{print} "with"; @{print} (absurd_th, xx))
         (*val absurd_inst = absurd_th OF [xx]
         val _ = @{print} absurd_inst*)
@@ -500,10 +508,9 @@ fun raw_isacop lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, concl: 
               val (ctxt', _, ths, prf) = FOL_to_HOL.reconstruct ctxt symtab sktab p
               val _ = map (Display.pretty_thm ctxt) ths |> Pretty.writeln_chunks;
               val (finalth, _, ctxt'') = Reconstruction.recon ctxt' [] (List.rev prf)
-              (*export does not seem to be required, but Isar implementors manual states
-                that it has to be used after an obtain step*)
               val finalth' = singleton (Proof_Context.export ctxt'' ctxt) finalth
               val _ = @{print} "reconstruction successful!"
+              val _ = @{print} finalth'
               val fals = hashek_finish OF [finalth']
               val _ = @{print} fals
             in resolve_tac ctxt [fals]
