@@ -181,19 +181,12 @@ datatype proof =
   | Path of term
   | Resolution of term * thm
 
-(*
 fun conv_sym tab sym = case Termmap.backward (tab, sym) of
       SOME t => t
     | NONE => raise Fail ("conv_sym: " ^ Int.toString sym)
 
-fun conv_term _ (FTerm.V v) = Bound v
-  | conv_term tab (FTerm.A (f, args)) =
-    list_comb (conv_sym tab f, map (conv_term tab) args)
-*)
-
 fun destResolution (leanCoP.Resolution r) = SOME r
   | destResolution _ = NONE
-
 
 
 fun get_subs off vars =
@@ -241,16 +234,13 @@ fun unsub2 (maps as (symmap, skolems)) t (acc as (tmmap, ctxt)) =
           in (t', ((FTerm.V v, t') :: tmmap, ctxt'))
           end
       | FTerm.A (f, fa) =>
-          (case Termmap.backward (symmap, f) of
-            SOME f' =>
-              (case fst (strip_comb f') of
-                Const (fh, _) => if member (op =) skolems fh then raise Unsubst else ()
-              | _ => ();
-              let val (args', acc') = fold_map (unsub2 maps) fa acc
-              in  (list_comb (f', args'), acc')
-              end)
-          | NONE => raise Fail "unknown symbol"
-          )
+          let val f' = conv_sym symmap f
+              val _ = case fst (strip_comb f') of
+                  Const (fh, _) => if member (op =) skolems fh then raise Unsubst else ()
+                | _ => ();
+              val (args', acc') = fold_map (unsub2 maps) fa acc
+          in  (list_comb (f', args'), acc')
+          end
       )
 
 fun treat_qu maps (todo as (prev, All sub :: quants, th)) (acc as (tmmap, ctxt, _)) =
