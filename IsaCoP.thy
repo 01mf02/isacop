@@ -68,7 +68,7 @@ ML_file "intbimap.ML"
 ML_file "isacop.ML"
 
 
-section \<open>Tests\<close>
+section \<open>leanCoP tests\<close>
 
 ML_val {*
 open FTerm;
@@ -89,15 +89,76 @@ leanCoP.prove_exception mat 10;*)
 *}
 
 
-declare [[ML_print_depth = 50]]
-ML {* @{term "\<forall>x. \<exists>y. f(x, y) \<and> Q(r)"} *}
+
+section \<open>Working examples\<close>
+
+(* Cezary's example: Here, it is necessary to instantiate one clause partially,
+   before the other clause can be instantiated, to finally fully instantiate
+   the first clause.*)
+lemma "(\<forall>x. \<exists>y. \<not>P(x, y) \<or> \<not>hashek) \<Longrightarrow> \<exists>x. \<forall>y. P(x, y) \<Longrightarrow> False"
+by (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
+
+lemma "\<not>b(x) \<or> \<not>hashek \<Longrightarrow> \<forall>y. (b(y)) \<Longrightarrow> False"
+by (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
+
+(* TODO: clausification does not work! *)
+(* Actually, the clausification does work! The goal just became trivial.
+   But reconstruction is possible. It is actually trivial as well. *)
+lemma "\<forall>x y. P(x,y) \<Longrightarrow> \<exists>a. \<forall>b. P(a, b)"
+by (isacop 1)
+
+(* Syllogism of Felapton *)
+lemma felapton_ex: "\<exists>c. Centaur(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> \<not>Vote(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> Intelligent(c) \<Longrightarrow>
+  \<exists>b. Intelligent(b) \<and> \<not>Vote(b)"
+by (isacop)
 
 
-lemma extension: "P \<or> Q \<Longrightarrow> \<not>P \<or> R \<Longrightarrow> (P \<Longrightarrow> R \<Longrightarrow> C) \<Longrightarrow> (Q \<Longrightarrow> C) \<Longrightarrow> C"
-by blast
+subsection \<open>Substitution involving only universal quantifiers\<close>
+
+lemma "\<not>P(a) \<or> \<not>Q(b) \<or> \<not>hashek \<Longrightarrow> \<forall>x. P(x) \<Longrightarrow> \<forall>x. Q(x) \<Longrightarrow> False"
+by (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
+
+(*
+[ ([(0, A (3, []))], Resolution ((~4, [A (5, [])]), [(1, [])], [(~2, [A (3, [])])]))
+, ([], Resolution ((~2, [A (3, [])]), [(1, [])], []))
+, ([], Resolution ((1, []), [], []))
+]
+*)
+
+lemma
+  assumes "\<not>P(a) \<or> \<not>Q(b) \<or> \<not>hashek"
+  assumes "\<forall>x. P(x)"
+  assumes "\<forall>x. Q(x)"
+  shows "False"
+proof -
+  have 1: "\<not>P(a) \<or> \<not>Q(b)" using assms(1) hashek_def by simp
+  have 2: "P(a)" using assms(2) by (rule allE)
+  have 3: "\<not>Q(b)" using assms(1) 2 hashek_def by simp
+  have 4: "Q(b)" using assms(3) by (rule allE)
+  have 5: "False" using 3 4 by contradiction
+  show ?thesis using 5 .
+qed
 
 
-section \<open>Example of the Lemma rule\<close>
+section \<open>Things that do not work yet\<close>
+
+(* You can read off the index of the conjunct that is used from an assumption. *)
+lemma conj_clause_ex: " \<not>b \<or> \<not>hashek \<Longrightarrow> a \<and> b \<Longrightarrow> False"
+apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
+oops
+
+(* Damo's Example: Depth 5 is required here! *)
+lemma damo_ex: "a \<or> b \<Longrightarrow> a \<longrightarrow> c(Damo) \<Longrightarrow> b \<longrightarrow> c(Much) \<Longrightarrow> \<exists>person. c(person)"
+apply (isacop 5)
+oops
+
+(* Proof with all kinds of rules *)
+lemma "p \<or> q \<or> \<not>hashek \<Longrightarrow> \<not>q \<or> p \<Longrightarrow> \<not>p \<or> r \<Longrightarrow> \<not>r \<or> \<not>p \<Longrightarrow> False"
+apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
+oops
+
+
+subsection \<open>Example of the Lemma rule\<close>
 
 lemma lemma_ex: "\<not>hashek \<or> p \<or> q \<Longrightarrow> \<not>p \<or> r \<Longrightarrow> \<not>r \<Longrightarrow> \<not>q \<or> p \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
@@ -134,7 +195,8 @@ proof -
   show ?thesis apply (rule disjE[OF 1 2 3]) .
 qed
 
-section \<open>Example of the Path rule\<close>
+
+subsection \<open>Example of the Path rule\<close>
 
 lemma "\<not>hashek \<or> p \<Longrightarrow> \<not>p \<or> q \<Longrightarrow> \<not>q \<or> \<not>p \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
@@ -164,35 +226,73 @@ proof -
   show ?thesis using 1 3 by contradiction
 qed
 
-section \<open>Substitution involving only universal quantifiers\<close>
 
-lemma "\<not>P(a) \<or> \<not>Q(b) \<or> \<not>hashek \<Longrightarrow> \<forall>x. P(x) \<Longrightarrow> \<forall>x. Q(x) \<Longrightarrow> False"
-by (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 
-(*
-[ ([(0, A (3, []))], Resolution ((~4, [A (5, [])]), [(1, [])], [(~2, [A (3, [])])]))
-, ([], Resolution ((~2, [A (3, [])]), [(1, [])], []))
-, ([], Resolution ((1, []), [], []))
-]
-*)
+section \<open>Unsolvable goals\<close>
+
+lemma "\<And>a. \<forall>x. \<exists>y. P(x,y) \<Longrightarrow> \<forall>x. P(f(x),a) \<Longrightarrow> Q(r)"
+apply (isacop 1)
+oops
 
 lemma
-  assumes "\<not>P(a) \<or> \<not>Q(b) \<or> \<not>hashek"
-  assumes "\<forall>x. P(x)"
-  assumes "\<forall>x. Q(x)"
-  shows "False"
-proof -
-  have 1: "\<not>P(a) \<or> \<not>Q(b)" using assms(1) hashek_def by simp
-  have 2: "P(a)" using assms(2) by (rule allE)
-  have 3: "\<not>Q(b)" using assms(1) 2 hashek_def by simp
-  have 4: "Q(b)" using assms(3) by (rule allE)
-  have 5: "False" using 3 4 by contradiction
-  show ?thesis using 5 .
-qed
+  "\<And>s. \<forall>x. ((P(x) \<longleftrightarrow> a \<and> b) \<or> ((\<forall>z. R(z,s)) \<or> (\<exists>y. \<forall>w. \<exists>v. Q(y, w, v)) \<and> r)) \<or> z \<Longrightarrow> a \<or> (b \<and> c) \<Longrightarrow> True \<Longrightarrow> False"
+apply (isacop 1)
+oops
 
-section \<open>Proof with all kinds of rules\<close>
-lemma "p \<or> q \<or> \<not>hashek \<Longrightarrow> \<not>q \<or> p \<Longrightarrow> \<not>p \<or> r \<Longrightarrow> \<not>r \<or> \<not>p \<Longrightarrow> False"
-apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
+
+lemma "\<And>y. y \<Longrightarrow> Q \<Longrightarrow> R \<Longrightarrow> \<forall>x. P(x)"
+apply (isacop 1)
+oops
+
+
+
+section \<open>ML-related stuff\<close>
+
+(*A real life-saver!*)
+(*Taken from: https://lists.cam.ac.uk/pipermail/cl-isabelle-users/2010-February/msg00132.html*)
+ML {*
+  val ctxt1 = @{context};
+  val cert = Thm.cterm_of ctxt1;
+
+  val (_, ctxt2) = ctxt1 |> Variable.add_fixes ["P", "f"];
+  val [A, C] = Syntax.read_props ctxt2 ["EX x. P (f (x))", "EX y. P(y)"];
+  val ([a], ctxt3) = ctxt2
+    |> Variable.declare_term A
+    |> Variable.declare_term C
+    |> Assumption.add_assumes [cert A];
+
+  val ((xs, [b]), ctxt4) = ctxt3
+    |> Obtain.result (fn _ => etac @{thm exE} 1) [a];
+
+  val res = Goal.prove ctxt4 [] [] C (fn _ => rtac @{thm exI} 1 THEN rtac b 1);
+  val final_res = singleton (Proof_Context.export ctxt4 ctxt1) res;
+*}
+
+declare [[ML_print_depth = 50]]
+ML {* @{term "\<forall>x. \<exists>y. f(x, y) \<and> Q(r)"} *}
+
+
+lemma ab: "a \<Longrightarrow> b"
+sorry
+
+lemma "b"
+ML_prf {*
+val c0 = @{context}
+val ([a], ctx) = Variable.add_fixes ["a"] c0
+val cassm = @{cprop a}
+(*val ([assm], ctxt) = Assumption.add_assumes [cassm] ctx;*)
+val ctxt = ctx;
+val traditional = Thm.assume cassm;
+val b = Goal.prove ctxt [] [Thm.term_of cassm] @{prop "b"} (fn _ => resolve_tac ctxt [@{thm ab} OF [traditional]] 1);
+Thm.hyps_of b;
+val cassm' = [@{cprop x}]
+val (tf, _) = Assumption.assume_export false [cassm];
+val b' = tf b;
+singleton (Proof_Context.export ctxt c0) b
+
+(* Assumption.export false ctxt ctx b *)
+
+*}
 oops
 
 lemma "a \<or> b \<or> c \<longrightarrow> c \<or> b \<or> a \<or> c"
@@ -202,17 +302,8 @@ lemma "b(x) \<longrightarrow> b(x)"
 by (tactic {* Reconstruction.reorder_disj @{context} *})
 
 
-lemma "a \<longrightarrow> c \<or> b \<or> a"
-by simp
 
-
-lemma
-  assumes "a \<longrightarrow> b"
-  assumes "a"
-  shows "b"
-using impE[OF assms(1) assms(2)] .
-
-section \<open>More experiments\<close>
+section \<open>Exemplary reconstruction proofs\<close>
 
 (*Sometimes, we have to fix a variable if it is not substituted with a constant.*)
 lemma
@@ -263,75 +354,5 @@ proof -
   note block = this
   show ?thesis using exE[OF all1 block] .
 qed
-
-(*A real life-saver!*)
-(*Taken from: https://lists.cam.ac.uk/pipermail/cl-isabelle-users/2010-February/msg00132.html*)
-ML {*
-  val ctxt1 = @{context};
-  val cert = Thm.cterm_of ctxt1;
-
-  val (_, ctxt2) = ctxt1 |> Variable.add_fixes ["P", "f"];
-  val [A, C] = Syntax.read_props ctxt2 ["EX x. P (f (x))", "EX y. P(y)"];
-  val ([a], ctxt3) = ctxt2
-    |> Variable.declare_term A
-    |> Variable.declare_term C
-    |> Assumption.add_assumes [cert A];
-
-  val ((xs, [b]), ctxt4) = ctxt3
-    |> Obtain.result (fn _ => etac @{thm exE} 1) [a];
-
-  val res = Goal.prove ctxt4 [] [] C (fn _ => rtac @{thm exI} 1 THEN rtac b 1);
-  val final_res = singleton (Proof_Context.export ctxt4 ctxt1) res;
-*}
-
-
-(* Cezary's example: Here, it is necessary to instantiate one clause partially,
-   before the other clause can be instantiated, to finally fully instantiate
-   the first clause.*)
-lemma "(\<forall>x. \<exists>y. \<not>P(x, y) \<or> \<not>hashek) \<Longrightarrow> \<exists>x. \<forall>y. P(x, y) \<Longrightarrow> False"
-by (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
-
-(* You can read off the index of the conjunct that is used from an assumption. *)
-lemma conj_clause_ex: " \<not>b \<or> \<not>hashek \<Longrightarrow> a \<and> b \<Longrightarrow> False"
-apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
-oops
-
-(* Syllogism of Felapton *)
-lemma felapton_ex: "\<exists>c. Centaur(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> \<not>Vote(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> Intelligent(c) \<Longrightarrow>
-  \<exists>b. Intelligent(b) \<and> \<not>Vote(b)"
-by (isacop)
-
-
-(* Damo's Example: Depth 5 is required here! *)
-lemma damo_ex: "a \<or> b \<Longrightarrow> a \<longrightarrow> c(Damo) \<Longrightarrow> b \<longrightarrow> c(Much) \<Longrightarrow> \<exists>person. c(person)"
-apply (isacop 5)
-oops
-
-
-lemma "\<not>b(x) \<or> \<not>hashek \<Longrightarrow> \<forall>y. (b(y)) \<Longrightarrow> False"
-by (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
-
-(* TODO: clausification does not work! *)
-(* Actually, the clausification does work! The goal just became trivial.
-   But reconstruction is possible. It is actually trivial as well. *)
-lemma "\<forall>x y. P(x,y) \<Longrightarrow> \<exists>a. \<forall>b. P(a, b)"
-by (isacop 1)
-
-
-section \<open>Unsolvable goals\<close>
-
-lemma "\<And>a. \<forall>x. \<exists>y. P(x,y) \<Longrightarrow> \<forall>x. P(f(x),a) \<Longrightarrow> Q(r)"
-apply (isacop 1)
-oops
-
-lemma
-  "\<And>s. \<forall>x. ((P(x) \<longleftrightarrow> a \<and> b) \<or> ((\<forall>z. R(z,s)) \<or> (\<exists>y. \<forall>w. \<exists>v. Q(y, w, v)) \<and> r)) \<or> z \<Longrightarrow> a \<or> (b \<and> c) \<Longrightarrow> True \<Longrightarrow> False"
-apply (isacop 1)
-oops
-
-
-lemma "\<And>y. y \<Longrightarrow> Q \<Longrightarrow> R \<Longrightarrow> \<forall>x. P(x)"
-apply (isacop 1)
-oops
 
 end
