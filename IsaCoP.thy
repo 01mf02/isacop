@@ -187,6 +187,17 @@ lemma "p \<or> q \<or> \<not>hashek \<Longrightarrow> \<not>q \<or> p \<Longrigh
 apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 oops
 
+(* Example from "Applications of unskolemization", Ritu Chadha, 1991. *)
+(* leanCoP does not find a proof. *)
+lemma
+  assumes
+   "\<forall>x y z w.
+      ((Q(y) \<or> L(b, y)) \<and> \<not>Q(g(a)) \<and> L(g(a), a) \<and> R(x, g(a)) \<or> \<not>P(x, g(a))) \<and>
+      (\<not>R(w, z) \<or> \<not>D(w, z))"
+  shows "\<exists>u. \<forall>v. (L(b, u) \<and> L(u, a) \<and> (\<not>P(v, u) \<or> \<not>D(v, u) \<or> M(a)))"
+using assms apply (isacop 100)
+oops
+
 
 subsection \<open>Example of the Lemma rule\<close>
 
