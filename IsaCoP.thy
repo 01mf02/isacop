@@ -304,6 +304,12 @@ by (tactic {* Reconstruction.reorder_disj @{context} *})
 
 section \<open>Exemplary reconstruction proofs\<close>
 
+(* It can be necessary to move universal quantifiers outside, to meet a substitution dependency. *)
+lemma
+  assumes "\<forall>x. \<exists>y. \<forall>z. P(x, y, z)"
+  shows "\<forall>x z. \<exists>y. P(x, y, z)"
+using assms by auto
+
 (*Sometimes, we have to fix a variable if it is not substituted with a constant.*)
 lemma
   assumes "\<forall>x. P(x)"
