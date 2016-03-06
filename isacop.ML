@@ -218,7 +218,7 @@ fun make_quant_info Skolemisation.All (sub :: subs, skolems) = (All sub, (subs, 
 
 fun invent_universal2 v ctxt =
   let (*TODO: Perhaps we need to do more here? (Making type most general?)
-        See Isar Implementation manual, p. 119 *)
+        See Isar Implementation manual from 2016, p. 119 *)
       val (var, ctxt') = Variable.variant_fixes [Int.toString v] ctxt
       val t' = Syntax.read_term ctxt' (the_single var)
   in (t', ctxt')
@@ -309,6 +309,7 @@ fun intro_equals l = List.map (fn i => List.nth (l, i))
 
 fun reconstruct ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
   let
+    val _ = @{print} "Welcome to reconstruct!"
     val sub' = Subst.normalise sub
     val res = map_filter destResolution prf |> map (transform_res symtab sub')
     val skolems = List.map (fn (_, (_, syms, _)) => syms) sktab |> List.concat
@@ -321,8 +322,10 @@ fun reconstruct ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
     val (is, (thuniq, _)) = elim_equals (thform_eq) thform
     val thuniq' = List.rev (map fst thuniq)
 
+    val _ = @{print} "Before instantiation ..."
     val (ctxt', tmmap, final) =
       do_while (instantiate_theorems (symtab, skolems)) (true, (ctxt, [], thuniq'))
+    val _ = @{print} "After instantiation ..."
     val final' = intro_equals final is
     val verified = verify_result final'
     val (prf', _) = fold_map (real_recon (sub', (symtab, skolems), (tmmap, ctxt'))) prf verified

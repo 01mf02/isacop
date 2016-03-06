@@ -116,6 +116,10 @@ by (isacop)
 lemma damo_ex: "a \<or> b \<Longrightarrow> a \<longrightarrow> c(Damo) \<Longrightarrow> b \<longrightarrow> c(Much) \<Longrightarrow> \<exists>person. c(person)"
 by (isacop 5)
 
+(* Redundant quantors are correctly instantiated. *)
+lemma "\<exists>y. \<forall>x. P(x, f(x), g(x)) \<Longrightarrow> \<forall>x. \<exists>y z. P(x, y, z)"
+by isacop
+
 
 subsection \<open>Substitution involving only universal quantifiers\<close>
 
@@ -182,6 +186,12 @@ lemma conj_clause_ex: " \<not>b \<or> \<not>hashek \<Longrightarrow> a \<and> b 
 apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 oops
 
+(* As above. *)
+lemma "\<exists>x. P(x) \<and> Q(x) \<Longrightarrow> \<exists>x. Q(x) \<and> P(x)"
+apply isacop
+oops
+
+
 (* Proof with all kinds of rules *)
 lemma "p \<or> q \<or> \<not>hashek \<Longrightarrow> \<not>q \<or> p \<Longrightarrow> \<not>p \<or> r \<Longrightarrow> \<not>r \<or> \<not>p \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
@@ -189,6 +199,7 @@ oops
 
 (* Example from "Applications of unskolemization", Ritu Chadha, 1991. *)
 (* leanCoP does not find a proof. *)
+(* Quickcheck reports that it is not valid. *)
 lemma
   assumes
    "\<forall>x y z w.
