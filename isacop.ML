@@ -364,8 +364,16 @@ let rec recon sub lemmas = function
   | [] -> assert false
 *)
 
-fun flip_polarity (@{const Not} $ t) = (t, true)
-  | flip_polarity t = (@{const Not} $ t, false)
+
+
+fun is_neg (@{const Not} $ t) = (true, t)
+  | is_neg t = (false, t)
+
+fun flip_polarity t =
+  let val (is, sans) = is_neg t in
+  if is then sans else @{const Not} $ t
+  end
+
 
 (* prove theorems of the shape "a \<or> b \<or> c \<longrightarrow> b \<or> c \<or> a \<or> c" *)
 fun reorder_disj ctxt =
@@ -386,23 +394,19 @@ fun make_contrapos ctxt prems concl =
     val _ = @{print} "concl destroyed"
     val disj = List.foldl FOLogic.mk_disj concl' prems' |> FOLogic.mk_Trueprop
     val _ = @{print} "disj created"
-    val negs = map (FOLogic.mk_Trueprop o fst o flip_polarity) prems
+    val negs = map (FOLogic.mk_Trueprop o flip_polarity) prems
     val goal = List.foldl Logic.mk_implies (FOLogic.mk_Trueprop concl) (disj :: negs)
     val res = Goal.prove ctxt [] [] goal (fn _ => Prenex.simp_tac_only ctxt @{thms disj_simps not_simps} 1)
   in (disj, res)
   end
 
 
-fun is_neg t = case FOLogic.dest_Trueprop t of
-    @{const Not} $ t => (true, t)
-  | t => (false, t)
-
 (*Given "A |- ~a ==>  a", prove "A |-  a" or
         "A |-  a ==> ~a", prove "A |- ~a"*)
 fun finish_rule ctxt impl =
   let
     val left = impl |> Thm.prems_of |> the_single
-    val (left_is_neg, left_unneg) = is_neg left
+    val (left_is_neg, left_unneg) = left |> FOLogic.dest_Trueprop |> is_neg
     val left_ct = Thm.cterm_of ctxt left
     val left_th = Thm.assume left_ct
     val right_th = impl OF [left_th]
@@ -420,7 +424,7 @@ fun finish_rule ctxt impl =
 
 
 fun recon ctxt _ (FOL_to_HOL.Path t :: tl) =
-      let val t' = t |> flip_polarity |> fst |> FOLogic.mk_Trueprop
+      let val t' = t |> flip_polarity |> FOLogic.mk_Trueprop
           val ct = Thm.cterm_of ctxt t'
       in (Thm.assume ct, tl, ctxt)
       end
@@ -430,7 +434,7 @@ fun recon ctxt _ (FOL_to_HOL.Path t :: tl) =
       | NONE => raise Fail "lemma not found")
   | recon ctxt lemmas (FOL_to_HOL.Resolution (t, th) :: tl) =
       let
-        val (negt, wasfalse) = flip_polarity t
+        val negt = flip_polarity t
         val disjuncts = th |> Thm.concl_of |> FOLogic.dest_Trueprop |> HOL_to_FOL.dest_disj
         val rest = remove1 (op =) negt disjuncts
         (*val _ = (@{print} (disjuncts, negt))*)

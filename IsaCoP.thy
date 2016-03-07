@@ -101,9 +101,6 @@ by (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 lemma "\<not>b(x) \<or> \<not>hashek \<Longrightarrow> \<forall>y. (b(y)) \<Longrightarrow> False"
 by (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 
-(* TODO: clausification does not work! *)
-(* Actually, the clausification does work! The goal just became trivial.
-   But reconstruction is possible. It is actually trivial as well. *)
 lemma "\<forall>x y. P(x,y) \<Longrightarrow> \<exists>a. \<forall>b. P(a, b)"
 by (isacop 1)
 
@@ -181,6 +178,11 @@ qed
 
 section \<open>Things that do not work yet\<close>
 
+(* Strange "Inner syntax error - Failed to parse term" *)
+lemma "\<forall>x y. P(x, y) \<or> \<not>hashek  \<Longrightarrow> \<forall>x y. \<not>P(y, x) \<Longrightarrow> False"
+apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
+oops
+
 (* You can read off the index of the conjunct that is used from an assumption. *)
 lemma conj_clause_ex: " \<not>b \<or> \<not>hashek \<Longrightarrow> a \<and> b \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
@@ -197,17 +199,6 @@ lemma "p \<or> q \<or> \<not>hashek \<Longrightarrow> \<not>q \<or> p \<Longrigh
 apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 oops
 
-(* Example from "Applications of unskolemization", Ritu Chadha, 1991. *)
-(* leanCoP does not find a proof. *)
-(* Quickcheck reports that it is not valid. *)
-lemma
-  assumes
-   "\<forall>x y z w.
-      ((Q(y) \<or> L(b, y)) \<and> \<not>Q(g(a)) \<and> L(g(a), a) \<and> R(x, g(a)) \<or> \<not>P(x, g(a))) \<and>
-      (\<not>R(w, z) \<or> \<not>D(w, z))"
-  shows "\<exists>u. \<forall>v. (L(b, u) \<and> L(u, a) \<and> (\<not>P(v, u) \<or> \<not>D(v, u) \<or> M(a)))"
-using assms apply (isacop 100)
-oops
 
 
 subsection \<open>Example of the Lemma rule\<close>
@@ -260,9 +251,20 @@ lemma
 apply (isacop 1)
 oops
 
-
 lemma "\<And>y. y \<Longrightarrow> Q \<Longrightarrow> R \<Longrightarrow> \<forall>x. P(x)"
 apply (isacop 1)
+oops
+
+(* Example from "Applications of unskolemization", Ritu Chadha, 1991. *)
+(* leanCoP does not find a proof. *)
+(* Quickcheck reports that it is not valid. *)
+lemma
+  assumes
+   "\<forall>x y z w.
+      ((Q(y) \<or> L(b, y)) \<and> \<not>Q(g(a)) \<and> L(g(a), a) \<and> R(x, g(a)) \<or> \<not>P(x, g(a))) \<and>
+      (\<not>R(w, z) \<or> \<not>D(w, z))"
+  shows "\<exists>u. \<forall>v. (L(b, u) \<and> L(u, a) \<and> (\<not>P(v, u) \<or> \<not>D(v, u) \<or> M(a)))"
+using assms apply (isacop 100)
 oops
 
 
@@ -325,12 +327,6 @@ by (tactic {* Reconstruction.reorder_disj @{context} *})
 
 
 section \<open>Exemplary reconstruction proofs\<close>
-
-(* It can be necessary to move universal quantifiers outside, to meet a substitution dependency. *)
-lemma
-  assumes "\<forall>x. \<exists>y. \<forall>z. P(x, y, z)"
-  shows "\<forall>x z. \<exists>y. P(x, y, z)"
-using assms by auto
 
 (*Sometimes, we have to fix a variable if it is not substituted with a constant.*)
 lemma
