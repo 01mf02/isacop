@@ -1,9 +1,21 @@
+(*  Title:      IsaCoP.thy
+    Author:     Michael Färber, Universität Innsbruck
+    Copyright   2016 Michael Färber
+
+Theory to load IsaCoP into FOL.
+
+As this is work in progress, see isaCoP.ML for current limitations.
+*)
+
+
 theory IsaCoP imports "~~/src/FOL/FOL"
 begin
 
 
 section \<open>Haskek\<close>
 
+(* The name "hashek" is a fusion of the word hash (for #) and of the
+   Czech word "háček", invented to satisfy the need of a unique name. *)
 definition "hashek == True"
 
 lemma hashekE:
@@ -294,29 +306,6 @@ ML {*
 declare [[ML_print_depth = 50]]
 ML {* @{term "\<forall>x. \<exists>y. f(x, y) \<and> Q(r)"} *}
 
-
-lemma ab: "a \<Longrightarrow> b"
-sorry
-
-lemma "b"
-ML_prf {*
-val c0 = @{context}
-val ([a], ctx) = Variable.add_fixes ["a"] c0
-val cassm = @{cprop a}
-(*val ([assm], ctxt) = Assumption.add_assumes [cassm] ctx;*)
-val ctxt = ctx;
-val traditional = Thm.assume cassm;
-val b = Goal.prove ctxt [] [Thm.term_of cassm] @{prop "b"} (fn _ => resolve_tac ctxt [@{thm ab} OF [traditional]] 1);
-Thm.hyps_of b;
-val cassm' = [@{cprop x}]
-val (tf, _) = Assumption.assume_export false [cassm];
-val b' = tf b;
-singleton (Proof_Context.export ctxt c0) b
-
-(* Assumption.export false ctxt ctx b *)
-
-*}
-oops
 
 lemma "a \<or> b \<or> c \<longrightarrow> c \<or> b \<or> a \<or> c"
 by (tactic {* Reconstruction.reorder_disj @{context} *})

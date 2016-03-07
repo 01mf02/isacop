@@ -1,3 +1,12 @@
+(*  Title:      mlCoP.ML
+    Author:     Michael Färber, Universität Innsbruck
+    Copyright   2016 Michael Färber
+
+Translation of leanCoP to Standard ML.
+*)
+
+
+
 signature FTERM =
 sig
 
