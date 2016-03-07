@@ -251,7 +251,7 @@ fun unify_contra (sub, off) lit contra =
 end
 
 
-signature LEANCOP =
+signature MLCOP =
 sig
 
 type path
@@ -272,7 +272,7 @@ val prove_default : 'a alternative -> ('a, 'b) promise -> 'b Matrix.matrix -> in
 
 end
 
-structure leanCoP : LEANCOP =
+structure mlCoP : MLCOP =
 struct
 
 val cut1 = true

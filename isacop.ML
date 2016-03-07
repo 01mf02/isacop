@@ -168,7 +168,7 @@ datatype proof =
   | Resolution of term * thm
 
 val reconstruct : Proof.context -> Termmap.bimap -> Skolemisation.table ->
-  Subst.subst * (int * Skolemisation.mapping) leanCoP.proof ->
+  Subst.subst * (int * Skolemisation.mapping) mlCoP.proof ->
   Proof.context * (FTerm.term * term) list * thm list * proof list
 
 end
@@ -185,7 +185,7 @@ fun conv_sym tab sym = case Termmap.backward (tab, sym) of
       SOME t => t
     | NONE => raise Fail ("conv_sym: " ^ Int.toString sym)
 
-fun destResolution (leanCoP.Resolution r) = SOME r
+fun destResolution (mlCoP.Resolution r) = SOME r
   | destResolution _ = NONE
 
 
@@ -283,9 +283,9 @@ fun conv_lit (sub, maps, acc) (P, Pa) =
   in unsub2 maps t' acc |> fst |> sign
   end
 
-fun real_recon data (leanCoP.Lemma t) ths = (Lemma (conv_lit data t), ths)
-  | real_recon data (leanCoP.Path t) ths = (Path (conv_lit data t), ths)
-  | real_recon data (leanCoP.Resolution (t, _)) (th::ths) = (Resolution (conv_lit data t, th), ths)
+fun real_recon data (mlCoP.Lemma t) ths = (Lemma (conv_lit data t), ths)
+  | real_recon data (mlCoP.Path t) ths = (Path (conv_lit data t), ths)
+  | real_recon data (mlCoP.Resolution (t, _)) (th::ths) = (Resolution (conv_lit data t, th), ths)
   | real_recon _ _ _ = raise Fail "real_recon"
 
 fun pretty_step ctxt (Path t) = Pretty.block [Pretty.str "Path: ", Syntax.pretty_term ctxt t]
@@ -505,7 +505,7 @@ exception Solved
 val prove_some =
   let fun todo sub _ prf = SOME (fst sub, prf)
       fun alt () = NONE
-  in  leanCoP.prove_default alt todo
+  in  mlCoP.prove_default alt todo
   end
 
 (* With every clause, save the theorem (premise) it came from, plus
