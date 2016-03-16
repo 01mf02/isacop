@@ -197,10 +197,10 @@ fun get_subs off vars =
   #> rev
 
 fun inst_spec ct th =
-  th RS (instantiate' [SOME (Thm.ctyp_of_cterm ct)] [NONE, SOME ct] @{thm spec})
+  th RS (Thm.instantiate' [SOME (Thm.ctyp_of_cterm ct)] [NONE, SOME ct] @{thm spec})
 
 fun obtain_ex th ctxt =
-  let val ((x, th'), ctxt') = Obtain.result (fn _ => etac @{thm exE} 1) [th] ctxt
+  let val ((x, th'), ctxt') = Obtain.result (fn _ => eresolve_tac ctxt @{thms exE} 1) [th] ctxt
   in ((the_single x, the_single th'), ctxt')
   end
 
@@ -292,7 +292,7 @@ fun pretty_step ctxt (Path t) = Pretty.block [Pretty.str "Path: ", Syntax.pretty
   | pretty_step ctxt (Lemma t) = Pretty.block [Pretty.str "Lemma: ", Syntax.pretty_term ctxt t]
   | pretty_step ctxt (Resolution (t, th)) = Pretty.block
       [Pretty.str "Resolution: ", Syntax.pretty_term ctxt t,
-       Pretty.str ", ", Display.pretty_thm ctxt th]
+       Pretty.str ", ", Thm.pretty_thm ctxt th]
 
 fun elim_equals eq l =
   let fun f x (prev, i) = case AList.lookup eq prev x of
@@ -412,12 +412,12 @@ fun finish_rule ctxt impl =
     val right_th = impl OF [left_th]
     val anything = @{thm notE} OF (if left_is_neg then [left_th, right_th] else [right_th, left_th])
     val left_impl_anything = Thm.implies_intr left_ct anything
-    val left_impl_false = Drule.instantiate' [] [SOME @{cterm False}] left_impl_anything
+    val left_impl_false = Thm.instantiate' [] [SOME @{cterm False}] left_impl_anything
     (* val _ = @{print} left *)
     (* val _ = @{print} (FOLogic.dest_Trueprop left) *)
     val neg_th = if left_is_neg then @{thm ccontr} else @{thm notI}
     val unneg_ct = Thm.cterm_of ctxt left_unneg
-    val neg_th' = Drule.instantiate' [] [SOME unneg_ct] neg_th
+    val neg_th' = Thm.instantiate' [] [SOME unneg_ct] neg_th
   in Thm.implies_elim neg_th' left_impl_false
   end
 
@@ -497,7 +497,7 @@ fun cond_tracing true msg = tracing (msg ())
   | cond_tracing false _ = ();
 
 fun TRACE ctxt rl tac i st =
-  (cond_tracing (Config.get ctxt trace) (fn () => Display.string_of_thm ctxt rl); tac i st);
+  (cond_tracing (Config.get ctxt trace) (fn () => Thm.string_of_thm ctxt rl); tac i st);
 
 
 exception Solved
@@ -538,7 +538,7 @@ fun raw_isacop lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, concl: 
             let
               val _ = @{print} p
               val (ctxt', _, ths, prf) = FOL_to_HOL.reconstruct ctxt symtab sktab p
-              val _ = map (Display.pretty_thm ctxt) ths |> Pretty.writeln_chunks;
+              val _ = map (Thm.pretty_thm ctxt) ths |> Pretty.writeln_chunks;
               val (finalth, _, ctxt'') = Reconstruction.recon ctxt' [] (List.rev prf)
               val finalth' = singleton (Proof_Context.export ctxt'' ctxt) finalth
               val _ = @{print} "reconstruction successful!"
