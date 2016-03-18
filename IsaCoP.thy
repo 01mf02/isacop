@@ -195,6 +195,15 @@ lemma "\<forall>x y. P(x, y) \<or> \<not>hashek  \<Longrightarrow> \<forall>x y.
 apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 oops
 
+(* Same error as above. *)
+lemma
+  "\<forall>x. \<exists>y. \<forall>z. P(x, y, z) \<or> R(x) \<or> Q(z) \<or> \<not>hashek \<Longrightarrow>
+  \<not>R(a) \<Longrightarrow> \<not>Q(b) \<Longrightarrow> \<not>Q(c) \<Longrightarrow>
+  \<forall>w. \<not>P(a, w, b) \<or> \<not>P(a, w, c) \<Longrightarrow>
+  False"
+apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
+oops
+
 (* You can read off the index of the conjunct that is used from an assumption. *)
 lemma conj_clause_ex: " \<not>b \<or> \<not>hashek \<Longrightarrow> a \<and> b \<Longrightarrow> False"
 apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
@@ -296,10 +305,10 @@ ML {*
     |> Variable.declare_term C
     |> Assumption.add_assumes [cert A];
 
-  val ((xs, [b]), ctxt4) = ctxt3
-    |> Obtain.result (fn _ => etac @{thm exE} 1) [a];
+  val ((xs, b), ctxt4) = ctxt3
+    |> Obtain.result (fn _ => eresolve_tac ctxt3 @{thms exE} 1) [a];
 
-  val res = Goal.prove ctxt4 [] [] C (fn _ => rtac @{thm exI} 1 THEN rtac b 1);
+  val res = Goal.prove ctxt4 [] [] C (fn _ => resolve_tac ctxt4 @{thms exI} 1 THEN resolve_tac ctxt4 b 1);
   val final_res = singleton (Proof_Context.export ctxt4 ctxt1) res;
 *}
 
@@ -365,6 +374,55 @@ proof -
   }
   note block = this
   show ?thesis using exE[OF all1 block] .
+qed
+
+lemma
+  assumes "\<exists>x. P(x)"
+  assumes "\<forall>x. \<not>P(x)"
+  shows "False"
+proof -
+  {
+    fix w
+    assume A: "P(w)"
+    have "~P(w)" using assms(2) by simp
+    then have False using A by simp
+  }
+  note block = this
+  show ?thesis using exE[OF assms(1) block] .
+qed
+
+(* Cezary's example no. 2: Backwards reasoning test with existential quantifiers. *)
+lemma
+  assumes "\<forall>x. \<exists>y. \<forall>z. P(x, y, z) \<or> R(x) \<or> Q(z)"
+  assumes "\<not>R(a)"
+  assumes "\<not>Q(b)"
+  assumes "\<not>Q(c)"
+  assumes "\<forall>w. \<not>P(a, w, b) \<or> \<not>P(a, w, c)"
+  shows "False"
+proof -
+  {
+    assume Y: "\<exists>y. \<forall>z. P(a, y, z) \<or> R(a) \<or> Q(z)"
+    {
+      fix w0
+      assume Z: "\<forall>z. P(a, w0, z) \<or> R(a) \<or> Q(z)"
+      {
+        assume B: "P(a, w0, b) \<or> R(a) \<or> Q(b)"
+        {
+          assume C: "P(a, w0, c) \<or> R(a) \<or> Q(c)"
+          {
+            assume W: "\<not>P(a, w0, b) \<or> \<not>P(a, w0, c)"
+            (* ground reasoning *)
+            have False using B C assms(2-4) W by auto
+          }
+          then have False using assms(5) by auto
+        }
+        then have False using Z by auto
+      }
+      then have False using Z by auto
+    }
+    then have False using Y by auto
+  }
+  then show ?thesis using assms(1) by auto
 qed
 
 end
