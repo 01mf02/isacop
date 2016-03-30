@@ -11,8 +11,8 @@ signature FTERM =
 sig
 
 type variable
-type predicate
-datatype term = V of variable | A of int * term list
+type constant
+datatype term = V of variable | A of constant * term list
 type lit
 type clause
 type clauses
@@ -30,8 +30,10 @@ structure FTerm : FTERM =
 struct
 
 type variable = int
+type constant = int
 type predicate = int
-datatype term = V of variable | A of int * term list
+
+datatype term = V of variable | A of constant * term list
 type lit = predicate * term list
 type clause = lit list
 type clauses = clause list
@@ -49,7 +51,7 @@ fun termVars (V x) = [x]
 
 fun litVars (_, ts) = List.concat (List.map termVars ts)
 
-fun clauseVars cl = List.concat (List.map litVars cl)
+val clauseVars = List.concat o List.map litVars
 
 end
 
@@ -62,14 +64,11 @@ type 'a matrix
 val entries : 'a matrix -> FTerm.lit -> 'a contrapositive list
 val insert_clauses : 'a matrix -> (FTerm.clause * 'a) list -> unit
 val empty : int -> 'a matrix
-val hashek : FTerm.predicate
 
 end
 
 structure Matrix : MATRIX =
 struct
-
-val goal_directed = true
 
 (* (lit-arguments, rest-clause, vars, data) *)
 type 'a contrapositive = (FTerm.term list * FTerm.clause * int * 'a)
@@ -81,16 +80,7 @@ type 'a matrix = 'a contrapositive list Array.array
 fun nat_of_int i = if i >= 0 then 2*i else ~(2*i + 1)
 
 
-val hashek = 1
-val hashek_lit = (~hashek, [])
-
 fun clauseMaxVar cl = 1 + List.foldl Int.max (~1) (FTerm.clauseVars cl)
-
-fun clause_prefix_hash cl =
-  if not goal_directed andalso
-     List.all (fn (p, _) => p < 0) cl andalso
-     not (Option.isSome (List.find (fn lit => lit = hashek_lit) cl))
-  then hashek_lit :: cl else cl
 
 (*Run function for every element and all other elements of the list.
   For example: app_rest [] f [1, 2, 3] =
@@ -104,15 +94,11 @@ fun app_rest _ _ [] = ()
 local
   fun insert_contrapositive mat max_var info ((p,tl), rest) =
     let val n = nat_of_int p
-        (* TODO: filtering the hashek literal seems to make some proofs incomplete,
-           see e.g. damo_ex *)
-        val nohashek = (*List.filter (fn l => l <> hashek_lit)*) rest
-    in  Array.update (mat, n, (tl, nohashek, max_var, info) :: Array.sub (mat, n))
+    in  Array.update (mat, n, (tl, rest, max_var, info) :: Array.sub (mat, n))
     end
 
   fun insert_clause mat (cl, info) =
     let val max_var = clauseMaxVar cl
-        val cl = clause_prefix_hash cl
     in  app_rest [] (insert_contrapositive mat max_var info) cl
     end
 in
@@ -152,6 +138,7 @@ fun add subst x t = (x, t) :: subst
 val empty = []
 
 end
+
 
 signature SUBST =
 sig
@@ -218,15 +205,18 @@ fun offsetTermVars off = mapVars (fn v => V (v + off))
 fun offsetLitVars off (p, l) = (p, List.map (offsetTermVars off) l)
 
 (*Unify with renaming of the second argument.*)
-fun unify_rename off (t1, t2, sub) = case (t1, t2) of
+
+fun unify_rename off (t1, t2, sub) = unifyTerm (t1, offsetTermVars off t2, sub)
+(*fun unify_rename off (t1, t2, sub) = case (t1, t2) of
     (A(f,fa), A(g,ga)) => if f <> g then raise Unify else unify_rename_list off sub (fa, ga)
   | (t1, V x) =>
       let val x' = x + off
       in  Subst.map (addSubst sub x' t1) (fn t => unify_rename 0 (t1, t, sub)) sub x'
       end
   | (V x, t2) => Subst.map (addSubst sub x (offsetTermVars off t2))
-      (fn t => unify_rename off (t, t2, sub)) sub x
+      (fn t => unify_rename off (t, t2, sub)) sub x*)
 and unify_rename_list off = ListPair.foldlEq (unify_rename off)
+
 
 fun unify_contrapos sub off (_, args1) (args2, rest, vars, _) =
     if vars = 0 then ((unifyTerms sub (args1, args2), off), rest)
@@ -356,11 +346,13 @@ and extend mat sub lit rest (hist as (path, lem, lim)) alt todo prf entries =
     | NONE => alt ()
     end
 
+val hashek = 1
+
 fun prove_default alt todo mat lim =
   let val sub = (Subst.empty, 0)
       val hist = ([], [], lim)
       val prf = []
-      val cla = [(Matrix.hashek, [])]
+      val cla = [(hashek, [])]
   in prove mat sub hist alt todo prf cla
   end
 
