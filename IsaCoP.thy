@@ -80,6 +80,17 @@ ML_file "intbimap.ML"
 ML_file "isacop.ML"
 
 
+section \<open>Equality axioms added by MESON\<close>
+
+(* Actually, transitivity is written as: *)
+lemma "x = y \<Longrightarrow> x = z \<Longrightarrow> y = z" by simp
+(* Is there a reason to do it like that? *)
+
+thm refl trans
+lemma "x1 = x2 \<Longrightarrow> y1 = y2 \<Longrightarrow> P(x1, y1) \<Longrightarrow> P(x2, y2)" by (simp only:)
+lemma "x1 = x2 \<Longrightarrow> y1 = y2 \<Longrightarrow> f(x1, y1) = f(x2, y2)" by (simp only:)
+
+
 section \<open>leanCoP tests\<close>
 
 ML_val {*
