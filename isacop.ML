@@ -493,11 +493,32 @@ val tm_consts = fold_aterms (fn x => fn l => case x of
     Const c => c :: l
   | _ => l)
 
-fun var_list i name ctxt = Variable.variant_fixes (replicate i name) ctxt
+fun free_list tys name ctxt =
+  let
+    val len = length tys
+    val (names, ctxt') = Variable.variant_fixes (replicate len name) ctxt
+    val vars = ListPair.mapEq (fn (name, ty) => Free (name, ty)) (names, tys)
+  in (vars, ctxt')
+  end
 
-val test = ListPair.mapEq FOLogic.mk_eq
+fun const_ax (name, t) ctxt =
+  let
+    val (tyinit, tylast) = strip_type t
+    val (largs, ctxt2) = free_list tyinit "x" ctxt
+    val (rargs, ctxt3) = free_list tyinit "y" ctxt2
+    val eqs = ListPair.mapEq FOLogic.mk_eq (largs, rargs)
+    val c = Const (name, t)
+    val cl = list_comb (c, largs)
+    val cr = list_comb (c, rargs)
+    val (prems, concl) =
+      if tylast = FOLogic.oT
+      then (cl :: eqs, cr)
+      else (eqs, FOLogic.mk_eq (cl, cr))
+  in (Logic.list_implies (map FOLogic.mk_Trueprop prems, FOLogic.mk_Trueprop concl), ctxt3)
+  end
 
-(*val pred_ax (p, t) =*)
+
+
 
 end
 

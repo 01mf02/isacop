@@ -82,14 +82,14 @@ ML_file "isacop.ML"
 section \<open>Work in progress\<close>
 
 definition "P(x,y) == True"
+definition "f(x) == x"
 
 ML {*
-val x = @{term "P(x, y)"}
+val x = @{term "P(f(x), y)"}
 val y = Equivalence.tm_consts x []
-val ty = @{typ "'a \<Rightarrow> 'b \<Rightarrow> o"}
-val bi = binder_types ty
-val z = list_implies
-val eq = FOLogic.mk_eq (@{term "x"}, @{term "y"})
+val (z,ctxt) = fold_map Equivalence.const_ax y @{context}
+val a = map (Thm.cterm_of ctxt) z
+
 *}
 
 
