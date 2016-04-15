@@ -517,7 +517,8 @@ fun const_ax (name, t) ctxt =
   in (Logic.list_implies (map FOLogic.mk_Trueprop prems, FOLogic.mk_Trueprop concl), ctxt3)
   end
 
-
+fun create x =
+  @{thm refl} :: @{thm trans} :: []
 
 
 end
