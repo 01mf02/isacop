@@ -486,6 +486,20 @@ fun recon ctxt _ (FOL_to_HOL.Path t :: tl) =
 
 end
 
+structure Equivalence =
+struct
+
+val tm_consts = fold_aterms (fn x => fn l => case x of
+    Const c => c :: l
+  | _ => l)
+
+fun var_list i name ctxt = Variable.variant_fixes (replicate i name) ctxt
+
+val test = ListPair.mapEq FOLogic.mk_eq
+
+(*val pred_ax (p, t) =*)
+
+end
 
 structure IsaCoP =
 struct

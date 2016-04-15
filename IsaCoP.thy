@@ -14,8 +14,7 @@ begin
 
 section \<open>Haskek\<close>
 
-(* The name "hashek" is a fusion of the word hash (for #) and of the
-   Czech word "háček", invented to satisfy the need of a unique name. *)
+(* In memoriam Jaroslav Hašek. *)
 definition "hashek == True"
 
 lemma hashekE:
@@ -78,6 +77,20 @@ section \<open>Prover and tactic\<close>
 ML_file "mlcop.ML"
 ML_file "intbimap.ML"
 ML_file "isacop.ML"
+
+
+section \<open>Work in progress\<close>
+
+definition "P(x,y) == True"
+
+ML {*
+val x = @{term "P(x, y)"}
+val y = Equivalence.tm_consts x []
+val ty = @{typ "'a \<Rightarrow> 'b \<Rightarrow> o"}
+val bi = binder_types ty
+val z = list_implies
+val eq = FOLogic.mk_eq (@{term "x"}, @{term "y"})
+*}
 
 
 section \<open>Equality axioms added by MESON\<close>
