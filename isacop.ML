@@ -517,8 +517,14 @@ fun const_ax (name, t) ctxt =
   in (Logic.list_implies (map FOLogic.mk_Trueprop prems, FOLogic.mk_Trueprop concl), ctxt3)
   end
 
-fun create x =
-  @{thm refl} :: @{thm trans} :: []
+fun create tms ctxt =
+  let
+    val consts = fold tm_consts tms []
+    val (ax_tms, ctxt') = fold_map const_ax consts ctxt
+    val axs = []
+  in
+  (@{thm refl} :: @{thm trans} :: axs, ctxt')
+  end
 
 
 end
