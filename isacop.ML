@@ -496,71 +496,43 @@ val tm_consts = fold_aterms (fn x => fn l => case x of
 fun free_list tys name ctxt =
   let
     val len = length tys
-    val (names, ctxt') = Variable.variant_fixes (replicate len name) ctxt
-    val vars = ListPair.mapEq (fn (name, ty) => Free (name, ty)) (names, tys)
+    val names = map (fn i => name ^ Int.toString i) (1 upto len)
+    val (fixes, ctxt') = Variable.variant_fixes names ctxt
+    val vars = ListPair.mapEq (fn (name, ty) => Free (name, ty)) (fixes, tys)
   in (vars, ctxt')
   end
 
-fun const_ax (name, t) ctxt =
-  let
-    val (tyinit, tylast) = strip_type t
-    val (largs, ctxt2) = free_list tyinit "x" ctxt
-    val (rargs, ctxt3) = free_list tyinit "y" ctxt2
-    val eqs = ListPair.mapEq FOLogic.mk_eq (largs, rargs)
-    val c = Const (name, t)
-    val cl = list_comb (c, largs)
-    val cr = list_comb (c, rargs)
-    val (prems, concl) =
-      if tylast = FOLogic.oT
-      then (cl :: eqs, cr)
-      else (eqs, FOLogic.mk_eq (cl, cr))
-  in (Logic.list_implies (map FOLogic.mk_Trueprop prems, FOLogic.mk_Trueprop concl), ctxt3)
-  end
+fun prove_predicate ctxt eqs (cl, _) =
+  cl |>
+  FOLogic.mk_Trueprop |>
+  Thm.cterm_of ctxt |>
+  Thm.assume |>
+  Simplifier.rewrite_rule ctxt eqs
 
-fun congruence (name, t) ctxt =
+fun prove_function ctxt eqs (cl, cr) =
   let
-    val (tyinit, tylast) = strip_type t
-    val (largs, ctxt2) = free_list tyinit "x" ctxt
-    val (rargs, ctxt3) = free_list tyinit "y" ctxt2
-    val eqs = ListPair.mapEq (Thm.assume o Thm.cterm_of ctxt o Logic.mk_equals) (largs, rargs)
-    val c = Const (name, t)
-    val cl = list_comb (c, largs)
-    val cr = list_comb (c, rargs)
-    val _ = tracing "Hi"
-    val cass = Thm.assume (Thm.cterm_of ctxt (FOLogic.mk_Trueprop cl))
-    val _ = tracing "Hi2"
-    val th = Simplifier.rewrite_rule ctxt eqs cass
-  in th
-  end
-
-fun congruence_f (name, t) ctxt =
-  let
-    val (tyinit, tylast) = strip_type t
-    val (largs, ctxt2) = free_list tyinit "x" ctxt
-    val (rargs, ctxt3) = free_list tyinit "y" ctxt2
-    val eqs = ListPair.mapEq (Thm.assume o Thm.cterm_of ctxt o Logic.mk_equals) (largs, rargs)
-    val c = Const (name, t)
-    val cl = list_comb (c, largs)
-    val cr = list_comb (c, rargs)
     val ceq = Logic.mk_equals (cl, cr) |> Thm.cterm_of ctxt
-    val cimpl = Thm.implies_intr ceq (Thm.assume ceq)
-    val cimp2 = Simplifier.rewrite_goals_rule ctxt eqs cimpl
+    val imp = Thm.assume ceq |> Thm.implies_intr ceq |> Simplifier.rewrite_goals_rule ctxt eqs
     val eq = Thm.reflexive (Thm.cterm_of ctxt cr)
-    val th = Thm.implies_elim cimp2 eq
-  in th
+  in Thm.implies_elim imp eq
   end
 
-
+fun congruence ctxt (name, t) =
+  let
+    val (tyinit, tylast) = strip_type t
+    val ((largs, rargs), ctxt') = ctxt |> free_list tyinit "x" ||>> free_list tyinit "y"
+    val eqs = ListPair.mapEq (Thm.assume o Thm.cterm_of ctxt' o Logic.mk_equals) (largs, rargs)
+    val c = Const (name, t)
+    val cl = list_comb (c, largs)
+    val cr = list_comb (c, rargs)
+    val prove = if tylast = FOLogic.oT then prove_predicate else prove_function
+  in prove ctxt' eqs (cl, cr) |> Drule.implies_intr_hyps
+  end
 
 fun create tms ctxt =
-  let
-    val consts = fold tm_consts tms []
-    val (ax_tms, ctxt') = fold_map const_ax consts ctxt
-    val axs = []
-  in
-  (@{thm refl} :: @{thm trans} :: axs, ctxt')
+  let val cong = map (congruence ctxt) (fold tm_consts tms [])
+  in (@{thm refl} :: @{thm trans} :: cong, ctxt)
   end
-
 
 end
 

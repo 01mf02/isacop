@@ -84,19 +84,15 @@ section \<open>Work in progress\<close>
 definition "P(x,y) == True"
 definition "f(x) == x"
 
+(* How to create schematic variables from free variables? *)
+lemma argh: "P(x, y) \<Longrightarrow> P(y, x)" unfolding P_def by simp
 
 ML {*
-val x = @{prop "P(x, y)"}
-val y = Equivalence.congruence (Equivalence.tm_consts x [] |> hd) @{context}
-val z = Drule.implies_intr_hyps y
-*}
-
-(*ML {*
 val x = @{term "P(f(x), y)"}
 val y = Equivalence.tm_consts x []
-val (z,ctxt) = fold_map Equivalence.const_ax y @{context}
-val a = map (Thm.cterm_of ctxt) z
-*}*)
+val cong = map (Equivalence.congruence @{context}) y
+val yyy = Equivalence.create [x] @{context}
+*}
 
 typedecl i
 
