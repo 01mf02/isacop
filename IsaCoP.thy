@@ -81,10 +81,17 @@ ML_file "isacop.ML"
 
 section \<open>Work in progress\<close>
 
-(*definition "P(x,y) == True"
+definition "P(x,y) == True"
 definition "f(x) == x"
 
+
 ML {*
+val x = @{prop "P(x, y)"}
+val y = Equivalence.congruence (Equivalence.tm_consts x [] |> hd) @{context}
+val z = Drule.implies_intr_hyps y
+*}
+
+(*ML {*
 val x = @{term "P(f(x), y)"}
 val y = Equivalence.tm_consts x []
 val (z,ctxt) = fold_map Equivalence.const_ax y @{context}
@@ -104,9 +111,8 @@ val ass2'' = Thm.implies_intr fe ass2
 val ass2' = Simplifier.rewrite_goals_rule @{context} assms ass2''
 val eq = Thm.reflexive @{cterm "f(b::i, d::i)"}
 val final = Thm.implies_elim ass2' eq
-val hyps = Thm.prems_of ass2'
+val hyps = Thm.hyps_of th1
 *}
-
 
 
 
