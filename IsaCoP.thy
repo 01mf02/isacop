@@ -81,16 +81,37 @@ ML_file "isacop.ML"
 
 section \<open>Work in progress\<close>
 
-definition "P(x,y) == True"
-definition "f(x) == x"
+definition "Quak(x,y) == True"
+definition "fork(x) == x"
+
+(* How to create schematic variables from free variables? *)
+lemma argh: "Quak(x, y) \<Longrightarrow> Quak(y, x)" unfolding Quak_def by simp
 
 ML {*
-val x = @{term "P(f(x), y)"}
+val x = @{term "Quak(fork(x), y)"}
 val y = Equivalence.tm_consts x []
-val (z,ctxt) = fold_map Equivalence.const_ax y @{context}
-val a = map (Thm.cterm_of ctxt) z
-
+val cong = map (Equivalence.congruence @{context}) y
+val yyy = Equivalence.create [x] @{context}
 *}
+
+typedecl i
+
+ML {*
+val assms = map Thm.assume [@{cterm "c::i == d"}, @{cterm "a::i == b"}]
+val ass1 = Thm.assume @{cprop "Quak(a::i,c::i)"}
+val th1 = Simplifier.rewrite_rule @{context} assms ass1
+
+val fe = @{cterm "f(a::i, c::i) == f(b, d)"}
+val ass2 = Thm.assume fe
+val ass2'' = Thm.implies_intr fe ass2
+val ass2' = Simplifier.rewrite_goals_rule @{context} assms ass2''
+val eq = Thm.reflexive @{cterm "f(b::i, d::i)"}
+val final = Thm.implies_elim ass2' eq
+val hyps = Thm.hyps_of th1
+*}
+
+
+
 
 
 section \<open>Equality axioms added by MESON\<close>
@@ -138,7 +159,7 @@ lemma "\<not>b(x) \<or> \<not>hashek \<Longrightarrow> \<forall>y. (b(y)) \<Long
 by (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 
 lemma "\<forall>x y. P(x,y) \<Longrightarrow> \<exists>a. \<forall>b. P(a, b)"
-by (isacop 1)
+using argh by (isacop 1)
 
 (* Syllogism of Felapton *)
 lemma felapton_ex: "\<exists>c. Centaur(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> \<not>Vote(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> Intelligent(c) \<Longrightarrow>

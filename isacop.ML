@@ -490,36 +490,61 @@ structure Equivalence =
 struct
 
 val tm_consts = fold_aterms (fn x => fn l => case x of
-    Const c => c :: l
+    Const c => insert (op =) c l
   | _ => l)
 
 fun free_list tys name ctxt =
   let
     val len = length tys
-    val (names, ctxt') = Variable.variant_fixes (replicate len name) ctxt
-    val vars = ListPair.mapEq (fn (name, ty) => Free (name, ty)) (names, tys)
+    val names = map (fn i => name ^ Int.toString i) (1 upto len)
+    val (fixes, ctxt') = Variable.variant_fixes names ctxt
+    val vars = ListPair.mapEq (fn (name, ty) => Free (name, ty)) (fixes, tys)
   in (vars, ctxt')
   end
 
-fun const_ax (name, t) ctxt =
+(* Given equalities x1 \<equiv> y1, \<dots>, xn \<equiv> yn and P x1 \<dots> xn,
+   show x1 \<equiv> y1 \<Longrightarrow> ... \<Longrightarrow> xn \<equiv> yn \<Longrightarrow> P x1 \<dots> xn \<Longrightarrow> P y1 \<dots> yn. *)
+fun prove_predicate ctxt eqs (cl, _) =
+  cl |>
+  FOLogic.mk_Trueprop |>
+  Thm.cterm_of ctxt |>
+  Thm.assume |>
+  Simplifier.rewrite_rule ctxt eqs
+
+(* Given equalities x1 \<equiv> y1, \<dots>, xn \<equiv> yn and f x1 \<dots> xn as well as f y1 \<dots> yn,
+   show x1 \<equiv> y1 \<Longrightarrow> ... \<Longrightarrow> xn \<equiv> yn \<Longrightarrow> f x1 \<dots> xn \<equiv> f y1 \<dots> yn. *)
+fun prove_function ctxt eqs (cl, cr) =
+  let
+    val ceq = Logic.mk_equals (cl, cr) |> Thm.cterm_of ctxt
+    val imp = Thm.assume ceq |> Thm.implies_intr ceq |> Simplifier.rewrite_goals_rule ctxt eqs
+    val eq = Thm.reflexive (Thm.cterm_of ctxt cr)
+  in Thm.implies_elim imp eq
+  end
+
+fun congruence ctxt (name, t) =
   let
     val (tyinit, tylast) = strip_type t
-    val (largs, ctxt2) = free_list tyinit "x" ctxt
-    val (rargs, ctxt3) = free_list tyinit "y" ctxt2
-    val eqs = ListPair.mapEq FOLogic.mk_eq (largs, rargs)
+    val ((largs, rargs), ctxt') = ctxt |> free_list tyinit "x" ||>> free_list tyinit "y"
+    val eqs = ListPair.mapEq (Thm.assume o Thm.cterm_of ctxt' o Logic.mk_equals) (largs, rargs)
     val c = Const (name, t)
     val cl = list_comb (c, largs)
     val cr = list_comb (c, rargs)
-    val (prems, concl) =
-      if tylast = FOLogic.oT
-      then (cl :: eqs, cr)
-      else (eqs, FOLogic.mk_eq (cl, cr))
-  in (Logic.list_implies (map FOLogic.mk_Trueprop prems, FOLogic.mk_Trueprop concl), ctxt3)
+    val prove = if tylast = FOLogic.oT then prove_predicate else prove_function
+  in prove ctxt' eqs (cl, cr) |> Drule.implies_intr_hyps
   end
 
-fun create x =
-  @{thm refl} :: @{thm trans} :: []
+fun is_good @{const_name IFOL.Trueprop} = false
+  | is_good @{const_name IFOL.eq} = false
+  | is_good @{const_name Pure.imp} = false
+  | is_good _ = true
 
+fun good_consts tms = fold tm_consts tms [] |> filter (is_good o fst)
+
+fun create tms ctxt =
+  let val cong = map (congruence ctxt) (good_consts tms)
+  val _ = writeln (@{make_string} (good_consts tms))
+  in @{thm refl} :: @{thm trans} :: cong
+  end
 
 end
 
@@ -587,19 +612,62 @@ fun raw_isacop lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, concl: 
   in tac 1
   end)
 
-fun isacop_tac lim (ctxt:Proof.context) =
+val has_tvar = exists_type (exists_subtype (fn TVar _ => true | _ => false)) o Thm.prop_of
+
+(* 
+fun metis_method ((override_type_encs, lam_trans), ths) ctxt facts =
+  let val (schem_facts, nonschem_facts) = List.partition has_tvar facts in
+    HEADGOAL (Method.insert_tac ctxt nonschem_facts THEN'
+      CHANGED_PROP o metis_tac (these override_type_encs)
+        (the_default default_metis_lam_trans lam_trans) ctxt (schem_facts @ ths))
+  end
+ *)
+
+
+fun isacop_method (lim, ths) ctxt facts =
   let
-    val lim' = case lim of NONE => Config.get ctxt depth_limit | SOME l => l;
+    val lim' = case lim of NONE => Config.get ctxt depth_limit | SOME l => l
+    val eqs = Equivalence.create (map Thm.prop_of facts) ctxt
+  in
+    HEADGOAL
+    ( K (print_tac ctxt "Hoy") THEN'
+
+      Method.insert_tac ctxt (eqs @ facts @ ths) THEN'
+      Object_Logic.atomize_prems_tac ctxt THEN'
+      Prenex.prepare_tac ctxt THEN'
+      raw_isacop lim' ctxt
+    )
+  end
+
+fun isacop_tac lim ctxt =
+  let
+    val lim' = case lim of NONE => Config.get ctxt depth_limit | SOME l => l
   in
     Object_Logic.atomize_prems_tac ctxt THEN'
-    Prenex.prepare_tac ctxt THEN'
-    raw_isacop lim' ctxt
-  end;
+      Prenex.prepare_tac ctxt THEN'
+      raw_isacop lim' ctxt
+  end
+
+
 
 val _ =
   Theory.setup
     (Method.setup @{binding isacop}
+      (Scan.lift (Scan.option Parse.nat) -- Attrib.thms >> (METHOD oo isacop_method))
+      "lean connection calculus prover")
+
+fun SIMPLE_METHwwOD'' quant tac =
+  METHOD (fn facts => fn th =>
+    quant (tac))
+
+val SIMPLE_METHwwOD' = SIMPLE_METHwwOD'' HEADGOAL;
+
+
+val _ =
+  Theory.setup
+    (Method.setup @{binding isacop2}
       (Scan.lift (Scan.option Parse.nat) >>
-        (fn lim => (fn ctxt => SIMPLE_METHOD' (isacop_tac lim ctxt))))
+        (fn lim => (fn ctxt => SIMPLE_METHwwOD' (isacop_tac lim ctxt))))
       "lean connection calculus prover");
+
 end
