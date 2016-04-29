@@ -72,6 +72,7 @@ lemmas prenex_ex  = conj_ex   ex_conj disj_ex   ex_disj
 lemmas prenex_all = conj_all all_conj disj_all all_disj
 
 
+
 section \<open>Prover and tactic\<close>
 
 ML_file "mlcop.ML"
@@ -81,48 +82,13 @@ ML_file "isacop.ML"
 
 section \<open>Work in progress\<close>
 
+typedecl i
 definition "Quak(x,y) == True"
+definition "Quip(x) == True"
 definition "fork(x) == x"
 
-(* How to create schematic variables from free variables? *)
-lemma argh: "Quak(x, y) \<Longrightarrow> Quak(y, x)" unfolding Quak_def by simp
-
-ML {*
-val x = @{term "Quak(fork(x), y)"}
-val y = Equivalence.tm_consts x []
-val cong = map (Equivalence.congruence @{context}) y
-val yyy = Equivalence.create [x] @{context}
-*}
-
-typedecl i
-
-ML {*
-val assms = map Thm.assume [@{cterm "c::i == d"}, @{cterm "a::i == b"}]
-val ass1 = Thm.assume @{cprop "Quak(a::i,c::i)"}
-val th1 = Simplifier.rewrite_rule @{context} assms ass1
-
-val fe = @{cterm "f(a::i, c::i) == f(b, d)"}
-val ass2 = Thm.assume fe
-val ass2'' = Thm.implies_intr fe ass2
-val ass2' = Simplifier.rewrite_goals_rule @{context} assms ass2''
-val eq = Thm.reflexive @{cterm "f(b::i, d::i)"}
-val final = Thm.implies_elim ass2' eq
-val hyps = Thm.hyps_of th1
-*}
-
-
-
-
-
-section \<open>Equality axioms added by MESON\<close>
-
-(* Actually, transitivity is written as: *)
-lemma "x = y \<Longrightarrow> x = z \<Longrightarrow> y = z" by simp
-(* Is there a reason to do it like that? *)
-
-thm refl trans
-lemma "x1 = x2 \<Longrightarrow> y1 = y2 \<Longrightarrow> P(x1, y1) \<Longrightarrow> P(x2, y2)" by (simp only:)
-lemma "x1 = x2 \<Longrightarrow> y1 = y2 \<Longrightarrow> f(x1, y1) = f(x2, y2)" by (simp only:)
+lemma quak: "Quak(x, y) \<Longrightarrow> Quak(y, x)" unfolding Quak_def by simp
+lemma quip: "Quip(x)" unfolding Quip_def by simp
 
 
 section \<open>leanCoP tests\<close>
@@ -146,7 +112,6 @@ leanCoP.prove_exception mat 10;*)
 *}
 
 
-
 section \<open>Working examples\<close>
 
 (* Cezary's example: Here, it is necessary to instantiate one clause partially,
@@ -159,7 +124,7 @@ lemma "\<not>b(x) \<or> \<not>hashek \<Longrightarrow> \<forall>y. (b(y)) \<Long
 by (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 
 lemma "\<forall>x y. P(x,y) \<Longrightarrow> \<exists>a. \<forall>b. P(a, b)"
-using argh by (isacop 1)
+using quip by (isacop 1)
 
 (* Syllogism of Felapton *)
 lemma felapton_ex: "\<exists>c. Centaur(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> \<not>Vote(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> Intelligent(c) \<Longrightarrow>
