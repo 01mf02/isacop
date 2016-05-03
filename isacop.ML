@@ -495,13 +495,6 @@ fun invent_tfrees t =
   in subst_TVars subst t
   end
 
-fun full_atomize ctxt thm =
-  let
-    val thm' = forall_intr_vars thm
-    val thm'' = Object_Logic.atomize ctxt (Thm.cprop_of thm')
-  in Simplifier.rewrite_rule ctxt [thm''] thm'
-  end
-
 (* Depending on type T, show:
    * x1 \<equiv> y1 \<Longrightarrow> ... \<Longrightarrow> xn \<equiv> yn \<Longrightarrow> P x1 \<dots> xn \<Longrightarrow> P y1 \<dots> yn.
    * x1 \<equiv> y1 \<Longrightarrow> ... \<Longrightarrow> xn \<equiv> yn \<Longrightarrow> f x1 \<dots> xn \<equiv> f y1 \<dots> yn.
@@ -609,17 +602,24 @@ fun raw_isacop lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, concl: 
   in tac 1
   end)
 
-
-(* val _ = (writeln o @{make_string}) thm *)
+fun atomize_thm ctxt thm =
+  let
+    val thm' = forall_intr_vars thm
+    val thm'' = Object_Logic.atomize ctxt (Thm.cprop_of thm')
+    val (l, r) = Logic.dest_equals (Thm.concl_of thm'')
+  (* if atomizing did not change anything, do not run into a rewrite loop! *)
+  in if l = r then thm' else Simplifier.rewrite_rule ctxt [thm''] thm'
+  end
 
 fun isacop_method (lim, ths) ctxt facts =
   let
     val lim' = case lim of NONE => Config.get ctxt depth_limit | SOME l => l
     val eqs = Equivalence.create (map Thm.prop_of facts) ctxt
-    val atomized = map (Equivalence.full_atomize ctxt) (facts @ ths @ eqs)
+    val atomized = map (atomize_thm ctxt) (facts @ ths @ eqs)
   in
     HEADGOAL
-    ( Method.insert_tac ctxt atomized THEN'
+    (
+      Method.insert_tac ctxt atomized THEN'
       Prenex.prepare_tac ctxt THEN'
       raw_isacop lim' ctxt
     )
