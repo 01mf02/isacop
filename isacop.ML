@@ -338,39 +338,12 @@ end
 structure Reconstruction =
 struct
 
-(*
-let rec recon sub lemmas = function
-    Pat g :: tl -> (ASSUME (Meson.hol_of_literal (ss sub g)), tl)
-  | Lem g :: tl -> find (fun x -> concl x = Meson.hol_of_literal (ss sub g)) lemmas, tl
-  | Res (g, (n, th)) :: tl ->
-    let foldf (found, lms, prf) _ =
-      let (nthm, nprf) = recon sub lms prf in (nthm :: found, nthm :: lms, nprf) in
-
-    let (ths, nlms, nprf) = List.fold_left foldf ([],lemmas,tl) (List.tl (disjuncts (concl th))) in
-
-    (* from |- t1 \<or> t2 \<or> ... \<or> tn \<or> ..., tm , create |- \<not>t1 \<and> \<not>t2 \<and> ... \<and> \<not>tm \<longrightarrow> tn *)
-    let cth : thm = Meson.make_hol_contrapos(n,th) in
-    (* get rid of implication, obtaining tn *)
-    let hth : thm = if ths = [] then cth else MATCH_MP cth (end_itlist CONJ (rev ths)) in
-
-    (* PART_MATCH : (term -> term) -> thm -> term -> thm *)
-    (* instantiate hth theorem to match the clashing literal *)
-    let ith = PART_MATCH I hth (Meson.hol_of_literal (ss sub g)) in
-
-    (* DISCH ... transforms  A, ~ith |- ith  to  A |- ~ith --> ith *)
-    (* finish_RULE then transforms this to A |- ith *)
-    Meson.finish_RULE (DISCH (hol_negate(concl ith)) ith), nprf
-  | [] -> assert false
-*)
-
-
-
-fun is_neg (@{const Not} $ t) = (true, t)
-  | is_neg t = (false, t)
+fun remove_neg (@{const Not} $ t) = (true, t)
+  | remove_neg t = (false, t)
 
 fun flip_polarity t =
-  let val (is, sans) = is_neg t in
-  if is then sans else @{const Not} $ t
+  let val (is_neg, unneg) = remove_neg t in
+  if is_neg then unneg else @{const Not} $ t
   end
 
 
@@ -402,25 +375,28 @@ fun make_contrapos ctxt prems concl =
 
 (*Given "A |- ~a ==>  a", prove "A |-  a" or
         "A |-  a ==> ~a", prove "A |- ~a"*)
-fun finish_rule ctxt impl =
+fun finish_rule ctxt imp =
   let
-    val left = impl |> Thm.prems_of |> the_single
-    val (left_is_neg, left_unneg) = left |> FOLogic.dest_Trueprop |> is_neg
+    val left = imp |> Thm.prems_of |> the_single
+    val (left_is_neg, left_unneg) = left |> FOLogic.dest_Trueprop |> remove_neg
     val left_ct = Thm.cterm_of ctxt left
     val left_th = Thm.assume left_ct
-    val right_th = impl OF [left_th]
+    val right_th = imp OF [left_th]
     val anything = @{thm notE} OF (if left_is_neg then [left_th, right_th] else [right_th, left_th])
     val left_impl_anything = Thm.implies_intr left_ct anything
     val left_impl_false = Thm.instantiate' [] [SOME @{cterm False}] left_impl_anything
-    (* val _ = @{print} left *)
-    (* val _ = @{print} (FOLogic.dest_Trueprop left) *)
     val neg_th = if left_is_neg then @{thm ccontr} else @{thm notI}
     val unneg_ct = Thm.cterm_of ctxt left_unneg
     val neg_th' = Thm.instantiate' [] [SOME unneg_ct] neg_th
   in Thm.implies_elim neg_th' left_impl_false
   end
 
-
+(* Test finish_rule. *)
+val _ =
+  let val fr = Thm.assume #> finish_rule @{context} #> Thm.concl_of
+  in @{assert} (fr @{cprop "\<not>a \<Longrightarrow> a"} = @{prop a});
+     @{assert} (fr @{cprop "a \<Longrightarrow> \<not>a"} = @{prop "\<not>a"})
+  end
 
 fun recon ctxt _ (FOL_to_HOL.Path t :: tl) =
       let val t' = t |> flip_polarity |> FOLogic.mk_Trueprop
@@ -488,12 +464,14 @@ end
 structure Equivalence =
 struct
 
+(*
 fun invent_tfrees t =
   let
     val tvars = Term.add_tvars t []
     val subst = map (fn ((s, i), S) => ((s, i), TFree (s (* ^ string_of_int i *), S))) tvars
   in subst_TVars subst t
   end
+*)
 
 (* Depending on type T, show:
    * x1 \<equiv> y1 \<Longrightarrow> ... \<Longrightarrow> xn \<equiv> yn \<Longrightarrow> P x1 \<dots> xn \<Longrightarrow> P y1 \<dots> yn.
@@ -515,12 +493,18 @@ fun congr ctxt (name, T) =
       then Logic.mk_implies o apply2 FOLogic.mk_Trueprop
       else FOLogic.mk_Trueprop o FOLogic.mk_eq
   in
-    Goal.prove ctxt (left @ right) eqs (goal c)
-      (fn {context = ctxt, prems = prs} =>
-        (* convert to meta-logic equality for rewriting *)
-        let val meqs = map (fn th => th RS @{thm eq_reflection}) prs
-        in rewrite_goal_tac ctxt meqs 1 THEN simp_tac ctxt 1
-        end)
+    Goal.prove ctxt (left @ right) eqs (goal c) (fn {context = ctxt, prems = prs} =>
+      (* convert to meta-logic equality for rewriting *)
+      let val meqs = map (fn th => th RS @{thm eq_reflection}) prs
+      in HEADGOAL (rewrite_goal_tac ctxt meqs THEN' simp_tac ctxt)
+      end)
+  end
+
+(* Tests for congruence axioms are hard in FOL, because there exist hardly any
+   meaningful predicates or functions that have a concrete type other than 'a or o. *)
+val _ =
+  let fun cong sym th = (Thm.prop_of (congr @{context} sym)) aconv (Thm.prop_of th)
+  in @{assert} (cong (dest_Const @{term "True"}) @{lemma "True \<Longrightarrow> True" by simp})
   end
 
 
@@ -529,11 +513,10 @@ val pure_blacklist = [@{const_name Pure.imp}]
 val const_blacklist = fol_blacklist @ pure_blacklist
 
 fun cong_consts ts =
-  fold Term.add_consts ts [] |> filter_out (member (op =) const_blacklist o fst)
+  fold Term.add_consts ts []
+  |> filter_out (member (op =) const_blacklist o fst)
 
-fun cong_axioms ctxt = map invent_tfrees #> cong_consts #> map (congr ctxt)
-
-fun create ts ctxt = @{thm refl} :: @{thm trans} :: cong_axioms ctxt ts
+fun cong_axioms ctxt = (* map invent_tfrees #> *) cong_consts #> map (congr ctxt)
 
 end
 
@@ -541,15 +524,6 @@ structure IsaCoP =
 struct
 
 val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20);
-(* val trace = Attrib.setup_config_bool @{binding isacop_trace} (K true); *)
-
-(*
-fun cond_tracing true msg = tracing (msg ())
-  | cond_tracing false _ = ();
-
-fun TRACE ctxt rl tac i st =
-  (cond_tracing (Config.get ctxt trace) (fn () => Thm.string_of_thm ctxt rl); tac i st);
-*)
 
 exception Solved
 
@@ -575,31 +549,24 @@ fun asdf asms =
 
 val hashek_finish = @{lemma "~hashek ==> False" by (simp add: hashek_def)}
 
+fun reconstruct ctxt (symtab, sktab) p =
+  let
+    val (ctxt', _, _, prf) = FOL_to_HOL.reconstruct ctxt symtab sktab p
+    val (finalth, _, ctxt'') = Reconstruction.recon ctxt' [] (List.rev prf)
+    val finalth' = singleton (Proof_Context.export ctxt'' ctxt) finalth
+  in hashek_finish OF [finalth']
+  end
+
 fun raw_isacop lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, concl: cterm, ...} =>
-  let (*val _ = map (Syntax.pretty_term ctxt o Thm.term_of) asms |> Pretty.writeln_chunks*)
-      val _ = @{print} concl
-      val (clss, symtab, sktab) = asdf prems
+  let val (clss, symtab, sktab) = asdf prems
       val cls = ListPair.mapEq recon_info (clss, sktab) |> List.concat
       val _ = cls |> List.map #1 |> FTerm.pretty_clauses |> Pretty.writeln
       val mat = Matrix.empty 10000
       val _ = Matrix.insert_clauses mat cls
-      (* val _ = PolyML.makestring mat |> writeln; *)
       val tac = case prove_some mat lim of
-          SOME p =>
-            let
-              val _ = @{print} p
-              val (ctxt', _, ths, prf) = FOL_to_HOL.reconstruct ctxt symtab sktab p
-              val _ = map (Thm.pretty_thm ctxt) ths |> Pretty.writeln_chunks;
-              val (finalth, _, ctxt'') = Reconstruction.recon ctxt' [] (List.rev prf)
-              val finalth' = singleton (Proof_Context.export ctxt'' ctxt) finalth
-              val _ = @{print} "reconstruction successful!"
-              val _ = @{print} finalth'
-              val fals = hashek_finish OF [finalth']
-              val _ = @{print} fals
-            in resolve_tac ctxt [fals]
-            end
+          SOME p => resolve_tac ctxt [reconstruct ctxt (symtab, sktab) p]
         | NONE => (writeln "Sorry, no proof found."; K no_tac)
-  in tac 1
+  in HEADGOAL tac
   end)
 
 fun atomize_thm ctxt thm =
@@ -614,8 +581,9 @@ fun atomize_thm ctxt thm =
 fun isacop_method (lim, ths) ctxt facts =
   let
     val lim' = case lim of NONE => Config.get ctxt depth_limit | SOME l => l
-    val eqs = Equivalence.create (map Thm.prop_of facts) ctxt
-    val atomized = map (atomize_thm ctxt) (facts @ ths @ eqs)
+    val eqs = Equivalence.cong_axioms ctxt (map Thm.prop_of facts)
+    val ths' = @{thm refl} :: @{thm trans} :: facts @ ths @ eqs
+    val atomized = map (atomize_thm ctxt) ths'
   in
     HEADGOAL
     (

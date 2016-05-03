@@ -72,23 +72,21 @@ lemmas prenex_ex  = conj_ex   ex_conj disj_ex   ex_disj
 lemmas prenex_all = conj_all all_conj disj_all all_disj
 
 
-
-section \<open>Prover and tactic\<close>
-
-ML_file "mlcop.ML"
-ML_file "intbimap.ML"
-ML_file "isacop.ML"
-
-
 section \<open>Work in progress\<close>
 
-typedecl i
 definition "Quak(x,y) == True"
 definition "Quip(x) == True"
 definition "fork(x) == x"
 
 lemma quak: "Quak(x, y) \<Longrightarrow> Quak(y, x)" unfolding Quak_def by simp
 lemma quip: "Quip(x)" unfolding Quip_def by simp
+
+
+section \<open>Prover and tactic\<close>
+
+ML_file "mlcop.ML"
+ML_file "intbimap.ML"
+ML_file "isacop.ML"
 
 
 section \<open>leanCoP tests\<close>
