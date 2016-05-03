@@ -495,12 +495,12 @@ fun invent_tfrees t =
   in subst_TVars subst t
   end
 
-(* fun full_atomize ctxt thm =
+fun full_atomize ctxt thm =
   let
-  val meta_eq = Object_Logic.atomize ctxt (Thm.cprop_of thm)
-  in
-    Simplifier.rewrite_goals_rule ctxt [meta_eq] thm
-  end *)
+    val thm' = forall_intr_vars thm
+    val thm'' = Object_Logic.atomize ctxt (Thm.cprop_of thm')
+  in Simplifier.rewrite_rule ctxt [thm''] thm'
+  end
 
 (* Depending on type T, show:
    * x1 \<equiv> y1 \<Longrightarrow> ... \<Longrightarrow> xn \<equiv> yn \<Longrightarrow> P x1 \<dots> xn \<Longrightarrow> P y1 \<dots> yn.
@@ -548,14 +548,15 @@ structure IsaCoP =
 struct
 
 val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20);
-val trace = Attrib.setup_config_bool @{binding isacop_trace} (K true);
+(* val trace = Attrib.setup_config_bool @{binding isacop_trace} (K true); *)
 
+(*
 fun cond_tracing true msg = tracing (msg ())
   | cond_tracing false _ = ();
 
 fun TRACE ctxt rl tac i st =
   (cond_tracing (Config.get ctxt trace) (fn () => Thm.string_of_thm ctxt rl); tac i st);
-
+*)
 
 exception Solved
 
@@ -608,13 +609,17 @@ fun raw_isacop lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, concl: 
   in tac 1
   end)
 
+
+(* val _ = (writeln o @{make_string}) thm *)
+
 fun isacop_method (lim, ths) ctxt facts =
   let
     val lim' = case lim of NONE => Config.get ctxt depth_limit | SOME l => l
     val eqs = Equivalence.create (map Thm.prop_of facts) ctxt
+    val atomized = map (Equivalence.full_atomize ctxt) (facts @ ths @ eqs)
   in
     HEADGOAL
-    ( Method.insert_tac ctxt (facts @ ths @ eqs ) THEN'
+    ( Method.insert_tac ctxt atomized THEN'
       Prenex.prepare_tac ctxt THEN'
       raw_isacop lim' ctxt
     )
