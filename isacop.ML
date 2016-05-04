@@ -11,6 +11,11 @@ TODO:
 - Fix non-found lemma (in lemma_ex).
 *)
 
+fun simp_only_tac ctxt ths =
+  put_simpset FOL_basic_ss ctxt addsimps ths
+  |> TRY oo asm_full_simp_tac
+
+
 structure Prenex =
 struct
 
@@ -22,28 +27,21 @@ struct
    ~G ==> P1 ==> ... Pn ==> False
 *)
 
-fun negOfGoal_tac ctxt =
+fun neg_goal_tac ctxt =
   resolve_tac ctxt @{thms ccontr} THEN' rotate_tac ~1
 
-fun simp_tac_only ctxt ths =
-  put_simpset FOL_basic_ss ctxt addsimps ths
-  |> TRY oo asm_full_simp_tac
-
 fun clausify_tac ctxt =
-  simp_tac_only ctxt @{thms meta_simps IFOL_simps cla_simps} THEN'
-  (* K (print_tac ctxt "After simplification") THEN' *)
-  simp_tac_only ctxt @{thms prenex_ex prenex_all} THEN'
-  (* K (print_tac ctxt "After prenexing") THEN' *)
-  simp_tac_only ctxt @{thms precnf_simps} THEN'
-  simp_tac_only ctxt @{thms cnf_simps} THEN'
-  simp_tac_only ctxt @{thms conj_simps disj_simps}
+  simp_only_tac ctxt @{thms meta_simps IFOL_simps cla_simps} THEN'
+  simp_only_tac ctxt @{thms prenex_ex prenex_all} THEN'
+  simp_only_tac ctxt @{thms precnf_simps} THEN'
+  simp_only_tac ctxt @{thms cnf_simps} THEN'
+  simp_only_tac ctxt @{thms conj_simps disj_simps}
 
 fun prepare_tac ctxt =
   (* introduce hashek into goal *)
   resolve_tac ctxt @{thms hashekE} THEN'
   K (print_tac ctxt "Initial proof state") THEN'
-  negOfGoal_tac ctxt THEN'
-  (* K (print_tac ctxt "After negation") THEN' *)
+  neg_goal_tac ctxt THEN'
   clausify_tac ctxt THEN'
   K (print_tac ctxt "After clausification")
 
@@ -86,12 +84,9 @@ fun skolemise_term all ex (((quant, (x, _)), quanti) :: quants) t ctxt =
       end)
   | skolemise_term _ ex [] t ctxt = ((rev ex, t), ctxt)
 
-fun strip_trueprop (Const (@{const_name "Trueprop"}, _) $ t) = t
-  | strip_trueprop t = t
-
 fun skolemise_assm assm ctxt =
   let
-    val t = assm |> Thm.concl_of |> strip_trueprop
+    val t = assm |> Thm.concl_of |> FOLogic.dest_Trueprop
     val (quants, bare) = strip_quants [] t
     val quants' = quants ~~ ((List.length quants - 1) downto 0)
     val ((ex, sk), ctxt') = skolemise_term [] [] quants' bare ctxt
@@ -358,25 +353,22 @@ val _ = prove_with_tac @{prop "a \<or> b \<or> c \<longrightarrow> b \<or> c \<o
 val _ = prove_with_tac @{prop "a \<longrightarrow> a"} disj_imp_tac
 
 
-(* create \<not>p1, \<not>p2, ..., \<not>pn, p1 \<or> p2 \<or> ... \<or> pn \<or> c |- c *)
-(* attention: premises are reversed! *)
-(* TODO: change foldl to foldr? *)
-fun make_contrapos ctxt prems concl =
+(* create p1 \<or> p2 \<or> ... \<or> pn \<or> c, \<not>p1, \<not>p2, ..., \<not>pn |- c *)
+fun contrapos_rule ctxt clause concl =
   let
-    val disj = List.foldl FOLogic.mk_disj concl prems |> FOLogic.mk_Trueprop
-    val negs = map (FOLogic.mk_Trueprop o flip_polarity) prems
-    val goal = List.foldl Logic.mk_implies (FOLogic.mk_Trueprop concl) (disj :: negs)
-    val res = Goal.prove ctxt [] [] goal (fn _ => Prenex.simp_tac_only ctxt @{thms disj_simps not_simps} 1)
+    val disj = List.foldr FOLogic.mk_disj concl clause |> FOLogic.mk_Trueprop
+    val negs = map (FOLogic.mk_Trueprop o flip_polarity) clause
+    val goal = List.foldr Logic.mk_implies (FOLogic.mk_Trueprop concl) (disj :: negs)
+    val res = Goal.prove ctxt [] [] goal (K (simp_only_tac ctxt @{thms disj_simps not_simps} 1))
   in (disj, res)
   end
 
 val _ =
   let
     val (disj, concl) = ([@{term "a::o"}, @{term "\<not>b::o"}], @{term "c::o"})
-    val (_, th) = make_contrapos @{context} disj concl
-  in @{assert} ((Thm.prop_of th) aconv @{term "b \<Longrightarrow> \<not> a \<Longrightarrow> \<not> b \<or> a \<or> c \<Longrightarrow> c"})
+    val (_, th) = contrapos_rule @{context} disj concl |> tap @{print}
+  in @{assert} ((Thm.prop_of th) aconv @{term "a \<or> \<not> b \<or> c \<Longrightarrow> \<not> a \<Longrightarrow> b \<Longrightarrow> c"})
   end
-
 
 (*Given "A |- ~a ==>  a", prove "A |-  a" or
         "A |-  a ==> ~a", prove "A |- ~a"*)
@@ -417,58 +409,32 @@ val _ =
   in @{assert} ((Thm.prop_of (dr gl ass)) aconv gl)
   end
 
+fun cprop_of ctxt = FOLogic.mk_Trueprop #> Thm.cterm_of ctxt
+
 fun recon ctxt _ (FOL_to_HOL.Path t :: tl) =
-      let val neg = flip_polarity #> FOLogic.mk_Trueprop #> Thm.cterm_of ctxt
-      in (Thm.assume (neg t), tl, ctxt)
-      end
-  | recon ctxt lemmas (FOL_to_HOL.Lemma t :: tl) =
+      (t |> flip_polarity |> cprop_of ctxt |> Thm.assume, tl)
+  | recon _ lemmas (FOL_to_HOL.Lemma t :: tl) =
       (case List.find (fn x => Thm.concl_of x = t) lemmas of
-        SOME x => (x, tl, ctxt)
+        SOME x => (x, tl)
       | NONE => raise Fail "lemma not found")
   | recon ctxt lemmas (FOL_to_HOL.Resolution (t, th) :: tl) =
       let
-        val negt = flip_polarity t
-        val disjuncts = th |> Thm.concl_of |> FOLogic.dest_Trueprop |> HOL_to_FOL.dest_disj
-        val rest = remove1 (op =) negt disjuncts
-        (*val _ = (@{print} (disjuncts, negt))*)
-        val _ = @{assert} (List.length rest = List.length disjuncts - 1)
-        val _ = @{print} "Before contrapos"
-        val (disj, contra) = make_contrapos ctxt rest negt
-        val _ = @{print} "After contrapos"
+        val neg = flip_polarity t
+        val clause = th |> Thm.concl_of |> FOLogic.dest_Trueprop |> HOL_to_FOL.dest_disj
+        val clause' = remove1 (op =) neg clause
+        val _ = @{assert} (List.length clause' = List.length clause - 1)
 
+        val (disj, contra) = contrapos_rule ctxt clause' neg
         val disj_prf = disj_rule ctxt disj th
 
-        fun foldf _ (found, lms, prf, ctxt) =
-          let val (nthm, nprf, nctxt) = recon ctxt lms prf
-          in (nthm :: found, nthm :: lms, nprf, nctxt)
+        fun foldf _ (found, lms, prf) =
+          let val (nthm, nprf) = recon ctxt lms prf
+          in (nthm :: found, nthm :: lms, nprf)
           end
-        val (ths, _, nprf, nctxt) = fold foldf rest ([], lemmas, tl, ctxt)
-        (*val _ = @{print} (contra, disj_prf, List.rev (th :: ths))*)
-        (*val _ = @{print warning} contra'*)
-        val tprf = contra OF (ths @ [disj_prf])
-        val _ = @{print} tprf
 
-        (* val to_discharge = Thm.cterm_of nctxt (FOLogic.mk_Trueprop t) *)
-        (* val (transform_th, _) = Assumption.assume_export false [to_discharge]; *)
-
-        val xx = Thm.implies_intr (Thm.cterm_of nctxt (FOLogic.mk_Trueprop t)) tprf
-        (* val xx = transform_th tprf *)
-        val _ = @{print} "implication introduced"
-        val _ = @{print warning} xx
-        val _ = (Thm.hyps_of xx) |> map (Syntax.pretty_term nctxt) |> Pretty.writeln_chunks
-        val _ = @{print warning} "end"
-        val _ = @{print} ("Original problem:")
-        val _ = Syntax.pretty_term ctxt t |> Pretty.writeln
-        val _ = @{print} (th)
-        (* val absurd_th = if wasfalse then absurd_impl_pos else absurd_impl_neg *)
-        (* val _ = (@{print} "Proving:"; @{print} t; @{print} "with"; @{print} (absurd_th, xx)) *)
-        (*val absurd_inst = absurd_th OF [xx]
-        val _ = @{print} absurd_inst*)
-        (* val final = Goal.prove nctxt [] [] (FOLogic.mk_Trueprop negt) *)
-         (* (fn _ => resolve_tac nctxt [absurd_th] 1 THEN resolve_tac nctxt [xx] 1 THEN assume_tac nctxt 1) *)
-        val final = finish_rule nctxt xx
-        val _ = @{print} "goal proved!"
-      in (final, nprf, nctxt)
+        val (ths, _, nprf) = fold foldf clause' ([], lemmas, tl)
+        val tprf = contra OF (disj_prf :: List.rev ths)
+      in (Thm.implies_intr (cprop_of ctxt t) tprf |> finish_rule ctxt, nprf)
       end
   | recon _ _ _ = raise Fail "recon"
 
@@ -565,8 +531,8 @@ val hashek_finish = @{lemma "~hashek ==> False" by (simp add: hashek_def)}
 fun reconstruct ctxt (symtab, sktab) p =
   let
     val (ctxt', _, _, prf) = FOL_to_HOL.reconstruct ctxt symtab sktab p
-    val (finalth, _, ctxt'') = Reconstruction.recon ctxt' [] (List.rev prf)
-    val finalth' = singleton (Proof_Context.export ctxt'' ctxt) finalth
+    val (finalth, _) = Reconstruction.recon ctxt' [] (List.rev prf)
+    val finalth' = singleton (Proof_Context.export ctxt' ctxt) finalth
   in hashek_finish OF [finalth']
   end
 
