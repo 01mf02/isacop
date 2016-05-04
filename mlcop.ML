@@ -259,6 +259,14 @@ datatype ('l, 'r) proof_step =
   | Resolution of 'l * 'r
 type ('l, 'r) proof = ('l, 'r) proof_step list
 
+fun fold_proof f _ (Lemma l) acc = (Lemma (f l), acc)
+  | fold_proof f _ (Path  l) acc = (Path  (f l), acc)
+  | fold_proof f g (Resolution (l, r)) acc =
+    let val (r', acc') = g (r, acc) in (Resolution (f l, r'), acc') end
+
+fun destResolution (Resolution r) = SOME r
+  | destResolution _ = NONE
+
 end
 
 

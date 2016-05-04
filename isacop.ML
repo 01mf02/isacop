@@ -15,7 +15,23 @@ fun simp_only_tac ctxt ths =
   put_simpset FOL_basic_ss ctxt addsimps ths
   |> TRY oo asm_full_simp_tac
 
+fun inst_spec ct th =
+  th RS (Thm.instantiate' [SOME (Thm.ctyp_of_cterm ct)] [NONE, SOME ct] @{thm spec})
+
+fun obtain_exists th =
+  Obtain.result (fn ctxt => eresolve_tac ctxt @{thms exE} 1) [th] #>>
+  (fn (x, th') => (the_single x, the_single th'))
+
+fun prove_with_tac t tac = Goal.prove @{context} [] [] t (K (tac @{context} 1))
+
+
+fun hd_tl (hd :: tl) = (hd, tl)
+  | hd_tl _ = raise Fail "hd_tl"
+
 fun flip f x y = f y x
+
+fun do_while f (continue, acc) = if continue then do_while f (f acc) else acc
+
 
 val hashek_and = @{lemma "P \<and> hashek \<Longrightarrow> P" by (simp add: hashek_def)}
 val hashek_not = @{lemma "\<not>hashek \<Longrightarrow> False" by (simp add: hashek_def)}
@@ -170,31 +186,30 @@ end
 signature COP_TO_ISA =
 sig
 
-datatype proof =
-    Lemma of term
-  | Path of term
-  | Resolution of term * thm
+type proof
 
 val reconstruct : Proof.context -> Termmap.bimap -> Skolemisation.table ->
   Subst.subst * (int * Skolemisation.mapping) mlCoP.proof ->
-  Proof.context * (FTerm.term * term) list * thm list * proof list
+  Proof.context * (FTerm.term * term) list * thm list * proof
 
 end
 
 structure CoP_to_Isa : COP_TO_ISA =
 struct
 
-datatype proof =
-    Lemma of term
-  | Path of term
-  | Resolution of term * thm
+type proof = (term, thm) CProof.proof
+
+fun pretty_step ctxt (CProof.Path t) =
+      Pretty.block [Pretty.str "Path: " , Syntax.pretty_term ctxt t]
+  | pretty_step ctxt (CProof.Lemma t) =
+      Pretty.block [Pretty.str "Lemma: ", Syntax.pretty_term ctxt t]
+  | pretty_step ctxt (CProof.Resolution (t, th)) = Pretty.block
+      [Pretty.str "Resolution: ", Syntax.pretty_term ctxt t,
+       Pretty.str ", ", Thm.pretty_thm ctxt th]
 
 fun conv_sym tab sym = case Termmap.backward (tab, sym) of
       SOME t => t
     | NONE => raise Fail ("conv_sym: " ^ Int.toString sym)
-
-fun destResolution (mlCoP.Resolution r) = SOME r
-  | destResolution _ = NONE
 
 
 fun get_subs off vars =
@@ -204,13 +219,6 @@ fun get_subs off vars =
   #> sort (prod_ord int_ord (K EQUAL))
   #> rev
 
-fun inst_spec ct th =
-  th RS (Thm.instantiate' [SOME (Thm.ctyp_of_cterm ct)] [NONE, SOME ct] @{thm spec})
-
-fun obtain_ex th ctxt =
-  let val ((x, th'), ctxt') = Obtain.result (fn _ => eresolve_tac ctxt @{thms exE} 1) [th] ctxt
-  in ((the_single x, the_single th'), ctxt')
-  end
 
 exception Unsubst
 
@@ -249,11 +257,12 @@ fun unsub2 (maps as (symmap, skolems)) t (acc as (tmmap, ctxt)) =
 
 fun treat_qu maps (todo as (prev, All sub :: quants, th)) (acc as (tmmap, ctxt, _)) =
      (let val (ho, (tmmap', ctxt')) = unsub2 maps sub (tmmap, ctxt)
-      in treat_qu maps (sub::prev, quants, inst_spec (Thm.cterm_of ctxt ho) th) (tmmap', ctxt', true)
+          val th' = inst_spec (Thm.cterm_of ctxt ho) th
+      in treat_qu maps (sub::prev, quants, th') (tmmap', ctxt', true)
       end
       handle Unsubst => (todo, acc))
   | treat_qu maps (prev, Ex sk :: quants, th) (tmmap, ctxt, _) =
-      let val ((x, th'), ctxt') = obtain_ex th ctxt
+      let val ((x, th'), ctxt') = obtain_exists th ctxt
           val skt = FTerm.A (sk, rev prev)
           val tmmap' = (skt, snd x |> Thm.term_of) :: tmmap
       in treat_qu maps (prev, quants, th') (tmmap', ctxt', true)
@@ -261,7 +270,8 @@ fun treat_qu maps (todo as (prev, All sub :: quants, th)) (acc as (tmmap, ctxt, 
   | treat_qu _ todo acc = (todo, acc)
 
 
-fun unskolemise tab x = case (Termmap.forward (tab, Skolemisation.skolem_function x)) of
+fun unskolemise tab x =
+  case (Termmap.forward (tab, Skolemisation.skolem_function x)) of
       SOME s => s
     | NONE => raise Fail "unskolemise"
 
@@ -273,8 +283,6 @@ fun transform_res symtab sub res =
       val quant_info = Skolemisation.fold_quants (All, Ex) (map fst quants) (map snd subs, skolems')
   in ((i, thm), quant_info)
   end
-
-fun do_while f (continue, acc) = if continue then do_while f (f acc) else acc
 
 fun instantiate_theorems tabs (ctxt, tmmap, ths) =
   let val (ths', (tmmap', ctxt', changed)) = fold_map (treat_qu tabs) ths (tmmap, ctxt, false)
@@ -292,16 +300,6 @@ fun conv_lit (sub, maps, acc) (P, Pa) =
   in unsub2 maps t' acc |> fst |> sign
   end
 
-fun real_recon data (mlCoP.Lemma t) ths = (Lemma (conv_lit data t), ths)
-  | real_recon data (mlCoP.Path t) ths = (Path (conv_lit data t), ths)
-  | real_recon data (mlCoP.Resolution (t, _)) (th::ths) = (Resolution (conv_lit data t, th), ths)
-  | real_recon _ _ _ = raise Fail "real_recon"
-
-fun pretty_step ctxt (Path t) = Pretty.block [Pretty.str "Path: ", Syntax.pretty_term ctxt t]
-  | pretty_step ctxt (Lemma t) = Pretty.block [Pretty.str "Lemma: ", Syntax.pretty_term ctxt t]
-  | pretty_step ctxt (Resolution (t, th)) = Pretty.block
-      [Pretty.str "Resolution: ", Syntax.pretty_term ctxt t,
-       Pretty.str ", ", Thm.pretty_thm ctxt th]
 
 fun elim_equals eq l =
   let fun f x (prev, i) = case AList.lookup eq prev x of
@@ -330,7 +328,7 @@ fun boo res =
 fun reconstruct ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
   let
     val sub' = Subst.normalise sub
-    val res = map_filter destResolution prf |> map (transform_res symtab sub')
+    val res = map_filter CProof.destResolution prf |> map (transform_res symtab sub')
     val (is, thuniq') = boo res
 
     val skolems = List.map (fn (_, (_, syms, _)) => syms) sktab |> List.concat
@@ -341,6 +339,7 @@ fun reconstruct ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
     val _ = @{print} "After instantiation ..."
     val final' = List.map (fn i => List.nth (final, i)) is
     val verified = verify_result final'
+    fun real_recon data = CProof.fold_proof (conv_lit data) (hd_tl o snd)
     val (prf', _) = fold_map (real_recon (sub', (symtab, skolems), (tmmap, ctxt'))) prf verified
     val _ = Pretty.writeln_chunks (map (pretty_step ctxt') prf')
   in
@@ -365,8 +364,6 @@ fun disj_imp_tac ctxt i =
   resolve_tac ctxt @{thms impI} i THEN
   REPEAT (SOMEGOAL (eresolve_tac ctxt @{thms disjE})) THEN
   ALLGOALS (asm_simp_tac ctxt)
-
-fun prove_with_tac t tac = Goal.prove @{context} [] [] t (K (tac @{context} 1))
 
 val _ = prove_with_tac @{prop "a \<or> b \<or> c \<longrightarrow> b \<or> c \<or> a \<or> c"} disj_imp_tac
 val _ = prove_with_tac @{prop "a \<longrightarrow> a"} disj_imp_tac
@@ -430,13 +427,13 @@ val _ =
 
 fun cprop_of ctxt = FOLogic.mk_Trueprop #> Thm.cterm_of ctxt
 
-fun recon ctxt _ (FOL_to_HOL.Path t :: tl) =
+fun recon ctxt _ (CProof.Path t :: tl) =
       (t |> flip_polarity |> cprop_of ctxt |> Thm.assume, tl)
-  | recon _ lemmas (FOL_to_HOL.Lemma t :: tl) =
+  | recon _ lemmas (CProof.Lemma t :: tl) =
       (case List.find (fn x => Thm.concl_of x = t) lemmas of
         SOME x => (x, tl)
       | NONE => raise Fail "lemma not found")
-  | recon ctxt lemmas (FOL_to_HOL.Resolution (t, th) :: tl) =
+  | recon ctxt lemmas (CProof.Resolution (t, th) :: tl) =
       let
         val neg = flip_polarity t
         val clause = th |> Thm.concl_of |> FOLogic.dest_Trueprop |> FOLogic.dest_disj
@@ -539,7 +536,7 @@ fun recon_info (cls, prem) = map_index (fn (i, cl) => (cl, (i, prem))) cls
 
 fun reconstruct ctxt (symtab, sktab) p =
   let
-    val (ctxt', _, _, prf) = FOL_to_HOL.reconstruct ctxt symtab sktab p
+    val (ctxt', _, _, prf) = CoP_to_Isa.reconstruct ctxt symtab sktab p
     val (finalth, _) = Reconstruction.recon ctxt' [] (List.rev prf)
     val finalth' = singleton (Proof_Context.export ctxt' ctxt) finalth
   in hashek_not OF [finalth']
