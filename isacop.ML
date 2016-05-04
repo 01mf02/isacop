@@ -346,7 +346,6 @@ fun flip_polarity t =
   if is_neg then unneg else @{const Not} $ t
   end
 
-
 (* prove theorems of the shape "a \<or> b \<or> c \<longrightarrow> b \<or> c \<or> a \<or> c" *)
 fun reorder_disj ctxt =
   resolve_tac ctxt @{thms impI} 1 THEN
@@ -354,6 +353,12 @@ fun reorder_disj ctxt =
   REPEAT
    (eresolve_tac ctxt @{thms disjE} 1 THEN
     REPEAT (CHANGED (Prenex.simp_tac_only ctxt @{thms disj_simps not_simps} 1)))
+
+fun disj_imp_tac ctxt =
+  resolve_tac ctxt @{thms impI} THEN_ALL_NEW
+  (
+    Prenex.simp_tac_only ctxt @{thms disj_simps not_simps} ORELSE'
+    eresolve_tac ctxt @{thms disjE})
 
 (* create \<not>p1, \<not>p2, ..., \<not>pn, p1 \<or> p2 \<or> ... \<or> pn \<or> c |- c *)
 (* attention: premises are reversed! *)
@@ -558,14 +563,16 @@ fun reconstruct ctxt (symtab, sktab) p =
   end
 
 fun raw_isacop lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, concl: cterm, ...} =>
-  let val (clss, symtab, sktab) = asdf prems
-      val cls = ListPair.mapEq recon_info (clss, sktab) |> List.concat
-      val _ = cls |> List.map #1 |> FTerm.pretty_clauses |> Pretty.writeln
-      val mat = Matrix.empty 10000
-      val _ = Matrix.insert_clauses mat cls
-      val tac = case prove_some mat lim of
-          SOME p => resolve_tac ctxt [reconstruct ctxt (symtab, sktab) p]
-        | NONE => (writeln "Sorry, no proof found."; K no_tac)
+  let
+    val _ = @{assert} ((Thm.term_of concl) aconv @{prop False})
+    val (clss, symtab, sktab) = asdf prems
+    val cls = ListPair.mapEq recon_info (clss, sktab) |> List.concat
+    val _ = cls |> List.map #1 |> FTerm.pretty_clauses |> Pretty.writeln
+    val mat = Matrix.empty 10000
+    val _ = Matrix.insert_clauses mat cls
+    val tac = case prove_some mat lim of
+        SOME p => resolve_tac ctxt [reconstruct ctxt (symtab, sktab) p]
+      | NONE => (writeln "Sorry, no proof found."; K no_tac)
   in HEADGOAL tac
   end)
 

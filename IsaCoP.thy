@@ -121,6 +121,14 @@ by (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 lemma "\<not>b(x) \<or> \<not>hashek \<Longrightarrow> \<forall>y. (b(y)) \<Longrightarrow> False"
 by (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 
+theorem "a \<or> b \<or> c \<longrightarrow> b \<or> c \<or> a \<or> c"
+  apply (tactic {* resolve_tac @{context} @{thms impI} 1 *} )
+  apply (tactic {* eresolve_tac @{context} @{thms disjE} 1 *} )
+  apply simp+
+  apply (tactic {* eresolve_tac @{context} @{thms disjE} 1 *} )
+  apply simp+
+done
+
 lemma "\<forall>x y. P(x,y) \<Longrightarrow> \<exists>a. \<forall>b. P(a, b)"
 using quip by (isacop 1)
 
