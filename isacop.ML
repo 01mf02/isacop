@@ -15,9 +15,11 @@ fun simp_only_tac ctxt ths =
   put_simpset FOL_basic_ss ctxt addsimps ths
   |> TRY oo asm_full_simp_tac
 
+fun flip f x y = f y x
 
-structure Prenex =
-struct
+val hashek_and = @{lemma "P \<and> hashek \<Longrightarrow> P" by (simp add: hashek_def)}
+val hashek_not = @{lemma "\<not>hashek \<Longrightarrow> False" by (simp add: hashek_def)}
+
 
 (* Negate goal and move it to first position. *)
 (* P1 ==> ... Pn ==> G
@@ -26,7 +28,6 @@ struct
    ------------------------------
    ~G ==> P1 ==> ... Pn ==> False
 *)
-
 fun neg_goal_tac ctxt =
   resolve_tac ctxt @{thms ccontr} THEN' rotate_tac ~1
 
@@ -37,18 +38,25 @@ fun clausify_tac ctxt =
   simp_only_tac ctxt @{thms cnf_simps} THEN'
   simp_only_tac ctxt @{thms conj_simps disj_simps}
 
-fun prepare_tac ctxt =
-  (* introduce hashek into goal *)
-  resolve_tac ctxt @{thms hashekE} THEN'
-  K (print_tac ctxt "Initial proof state") THEN'
-  neg_goal_tac ctxt THEN'
-  clausify_tac ctxt THEN'
-  K (print_tac ctxt "After clausification")
+
+structure Termmap = IntBimap (type key = term val ord = Term_Ord.fast_term_ord)
+
+
+
+signature SKOLEMISATION =
+sig
+
+type table
+type mapping
+type quant_type
+
+val skolem_function : string -> term
+val fold_quants : ('a -> 'c) * ('b -> 'c) -> quant_type list -> 'a list * 'b list -> 'c list
+val skolemise_assms : thm list -> table
 
 end
 
-
-structure Skolemisation =
+structure Skolemisation : SKOLEMISATION =
 struct
 
 datatype quant_type = All | Ex
@@ -93,12 +101,16 @@ fun skolemise_assm assm ctxt =
   in ((assm, (quants, ex, sk)), ctxt')
   end
 
-fun skolemise_assms assms = fold_map skolemise_assm assms Name.context
+fun skolemise_assms assms = fold_map skolemise_assm assms Name.context |> fst
+
+
+fun map_quant (fa, _) All (hd :: tl, ex) = (fa hd, (tl,  ex))
+  | map_quant (_, fe) Ex (all, hd :: tl) = (fe hd, (all, tl))
+  | map_quant _ _ _ = raise Fail "map_quant"
+
+fun fold_quants fs = fst oo fold_map (map_quant fs)
 
 end
-
-
-structure Termmap = IntBimap (type key = term val ord = Term_Ord.fast_term_ord)
 
 
 structure FOLogic =
@@ -111,7 +123,7 @@ fun dest_disj (Const (@{const_name disj}, _) $ t $ t') = t :: dest_disj t'
 end
 
 
-structure HOL_to_FOL =
+structure Isa_to_CoP =
 struct
 
 fun conv_term (Bound b) tab = (FTerm.V b, tab)
@@ -130,6 +142,8 @@ val conv_clauses = fold_map conv_clause
 val conv_asms = fold_map conv_clauses
 
 val clausify = map FOLogic.dest_disj o FOLogic.dest_conj
+
+fun convert tab = map clausify #> flip conv_asms tab
 
 end
 
@@ -206,10 +220,6 @@ datatype quant_info =
     (* existential quantifier has a certain FO identifier *)
   | Ex of int
 
-fun make_quant_info Skolemisation.All (sub :: subs, skolems) = (All sub, (subs, skolems))
-  | make_quant_info Skolemisation.Ex (subs, skolem :: skolems) = (Ex skolem, (subs, skolems))
-  | make_quant_info _ _ = raise Fail "make_quant_info"
-
 fun invent_universal2 v ctxt =
   let (*TODO: Perhaps we need to do more here? (Making type most general?)
         See Isar Implementation manual from 2016, p. 119 *)
@@ -250,13 +260,18 @@ fun treat_qu maps (todo as (prev, All sub :: quants, th)) (acc as (tmmap, ctxt, 
       end
   | treat_qu _ todo acc = (todo, acc)
 
+
+fun unskolemise tab x = case (Termmap.forward (tab, Skolemisation.skolem_function x)) of
+      SOME s => s
+    | NONE => raise Fail "unskolemise"
+
 fun transform_res symtab sub res =
-  let val (_, (off, (_, _, vars, thinfo))) = res
+  let val (_, off, (_, _, vars, thinfo)) = res
       val (i, (thm, (quants, skolems, _)) : Skolemisation.mapping) = thinfo
-      val skolems' = map (fn x => Option.valOf (Termmap.forward (symtab, Skolemisation.skolem_function x))) skolems
+      val skolems' = map (unskolemise symtab) skolems
       val subs = get_subs off vars sub
-      val quant_info = fold_map make_quant_info (map fst quants) (map snd subs, skolems')
-  in ((i, thm), fst quant_info)
+      val quant_info = Skolemisation.fold_quants (All, Ex) (map fst quants) (map snd subs, skolems')
+  in ((i, thm), quant_info)
   end
 
 fun do_while f (continue, acc) = if continue then do_while f (f acc) else acc
@@ -279,7 +294,7 @@ fun conv_lit (sub, maps, acc) (P, Pa) =
 
 fun real_recon data (mlCoP.Lemma t) ths = (Lemma (conv_lit data t), ths)
   | real_recon data (mlCoP.Path t) ths = (Path (conv_lit data t), ths)
-  | real_recon data (mlCoP.Resolution (t, _)) (th::ths) = (Resolution (conv_lit data t, th), ths)
+  | real_recon data (mlCoP.Resolution (t, _, _)) (th::ths) = (Resolution (conv_lit data t, th), ths)
   | real_recon _ _ _ = raise Fail "real_recon"
 
 fun pretty_step ctxt (Path t) = Pretty.block [Pretty.str "Path: ", Syntax.pretty_term ctxt t]
@@ -299,14 +314,8 @@ val _ = @{assert}
  (elim_equals (op =) ["a", "b", "a", "c"] =
   ([0, 1, 0, 2], ([("c", 2), ("b", 1), ("a", 0)], 3)))
 
-fun intro_equals l = List.map (fn i => List.nth (l, i))
-
-fun reconstruct ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
+fun boo res =
   let
-    val _ = @{print} "Welcome to reconstruct!"
-    val sub' = Subst.normalise sub
-    val res = map_filter destResolution prf |> map (transform_res symtab sub')
-    val skolems = List.map (fn (_, (_, syms, _)) => syms) sktab |> List.concat
     val thform = List.map (fn ((_, th), quants) => ([], quants, th)) res
 
     (*remove duplicate theorems, but save information where they were so
@@ -315,12 +324,22 @@ fun reconstruct ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
     fun thform_eq ((_, q1, th1), (_, q2, th2)) = q1 = q2 andalso Thm.concl_of th1 = Thm.concl_of th2
     val (is, (thuniq, _)) = elim_equals (thform_eq) thform
     val thuniq' = List.rev (map fst thuniq)
+  in (is, thuniq')
+  end
+
+fun reconstruct ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
+  let
+    val sub' = Subst.normalise sub
+    val res = map_filter destResolution prf |> map (transform_res symtab sub')
+    val (is, thuniq') = boo res
+
+    val skolems = List.map (fn (_, (_, syms, _)) => syms) sktab |> List.concat
 
     val _ = @{print} "Before instantiation ..."
     val (ctxt', tmmap, final) =
       do_while (instantiate_theorems (symtab, skolems)) (true, (ctxt, [], thuniq'))
     val _ = @{print} "After instantiation ..."
-    val final' = intro_equals final is
+    val final' = List.map (fn i => List.nth (final, i)) is
     val verified = verify_result final'
     val (prf', _) = fold_map (real_recon (sub', (symtab, skolems), (tmmap, ctxt'))) prf verified
     val _ = Pretty.writeln_chunks (map (pretty_step ctxt') prf')
@@ -517,29 +536,23 @@ val prove_some =
 fun recon_info (cls, prem) = map_index (fn (i, cl) => (cl, (i, prem))) cls
 
 
-fun asdf asms =
-  let (*val _ = map (Syntax.pretty_term ctxt o strip_trueprop o Thm.term_of) asms |> Pretty.writeln_chunks*)
-    val (skolemised, _) = Skolemisation.skolemise_assms asms
-    val clausified = map HOL_to_FOL.clausify (map (#3 o #2) skolemised)
-    val (symm, _) = Termmap.insert (Termmap.empty 10000, @{const hashek})
-    val (clss, symtab) = HOL_to_FOL.conv_asms clausified symm
-  in (clss, symtab, skolemised)
-  end
-
-val hashek_finish = @{lemma "~hashek ==> False" by (simp add: hashek_def)}
 
 fun reconstruct ctxt (symtab, sktab) p =
   let
     val (ctxt', _, _, prf) = FOL_to_HOL.reconstruct ctxt symtab sktab p
     val (finalth, _) = Reconstruction.recon ctxt' [] (List.rev prf)
     val finalth' = singleton (Proof_Context.export ctxt' ctxt) finalth
-  in hashek_finish OF [finalth']
+  in hashek_not OF [finalth']
   end
 
 fun raw_isacop lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, concl: cterm, ...} =>
   let
     val _ = @{assert} ((Thm.term_of concl) aconv @{prop False})
-    val (clss, symtab, sktab) = asdf prems
+
+    val sktab = Skolemisation.skolemise_assms prems
+    val symm = Termmap.insert (Termmap.empty 10000, @{const hashek}) |> fst
+    val (clss, symtab) = sktab |> map (#3 o #2) |> Isa_to_CoP.convert symm
+
     val cls = ListPair.mapEq recon_info (clss, sktab) |> List.concat
     val _ = cls |> List.map #1 |> FTerm.pretty_clauses |> Pretty.writeln
     val mat = Matrix.empty 10000
@@ -569,7 +582,12 @@ fun isacop_method (lim, ths) ctxt facts =
     HEADGOAL
     (
       Method.insert_tac ctxt atomized THEN'
-      Prenex.prepare_tac ctxt THEN'
+      (* introduce hashek into goal *)
+      resolve_tac ctxt [hashek_and] THEN'
+      K (print_tac ctxt "Initial proof state") THEN'
+      neg_goal_tac ctxt THEN'
+      clausify_tac ctxt THEN'
+      K (print_tac ctxt "After clausification") THEN'
       raw_isacop lim' ctxt
     )
   end

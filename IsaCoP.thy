@@ -17,11 +17,6 @@ section \<open>Haskek\<close>
 (* In memoriam Jaroslav Hašek. *)
 definition "hashek == True"
 
-lemma hashekE:
-  assumes "P \<and> hashek"
-  shows "P"
-using assms unfolding hashek_def by simp
-
 
 section \<open>Clausification\<close>
 
