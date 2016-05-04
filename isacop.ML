@@ -98,21 +98,25 @@ fun skolemise_assms assms = fold_map skolemise_assm assms Name.context
 end
 
 
-structure Symmap = IntBimap (type key = string val ord = string_ord)
 structure Termmap = IntBimap (type key = term val ord = Term_Ord.fast_term_ord)
 
+
+structure FOLogic =
+struct
+
+open FOLogic
+fun dest_disj (Const (@{const_name disj}, _) $ t $ t') = t :: dest_disj t'
+  | dest_disj t = [t];
+
+end
 
 
 structure HOL_to_FOL =
 struct
 
-fun destConstFree (Const (c, T)) = (c, T)
-  | destConstFree (Free (f, T)) = (f, T)
-  | destConstFree x = raise TERM ("destConstFree", [x])
-
 fun conv_term (Bound b) tab = (FTerm.V b, tab)
   | conv_term t tab =
-  let val (P, args) = strip_comb t (* |>> fst o destConstFree*)
+  let val (P, args) = strip_comb t
       val (tab', P') = Termmap.insert (tab, P)
       val (args', tab'') = fold_map conv_term args tab'
   in (FTerm.A (P', args'), tab'')
@@ -125,12 +129,7 @@ val conv_clause = fold_map conv_prop
 val conv_clauses = fold_map conv_clause
 val conv_asms = fold_map conv_clauses
 
-
-val dest_conj = FOLogic.dest_conj
-fun dest_disj (Const (@{const_name disj}, _) $ t $ t') = t :: dest_disj t'
-  | dest_disj t = [t];
-
-val clausify = map dest_disj o dest_conj
+val clausify = map FOLogic.dest_disj o FOLogic.dest_conj
 
 end
 
@@ -152,6 +151,7 @@ val pretty_clause = Pretty.separate " \<or>" o map pretty_lit
 val pretty_clauses = Pretty.block o Pretty.separate " \<and>" o map (Pretty.enclose "(" ")" o pretty_clause)
 
 end
+
 
 signature FOL_TO_HOL =
 sig
@@ -420,7 +420,7 @@ fun recon ctxt _ (FOL_to_HOL.Path t :: tl) =
   | recon ctxt lemmas (FOL_to_HOL.Resolution (t, th) :: tl) =
       let
         val neg = flip_polarity t
-        val clause = th |> Thm.concl_of |> FOLogic.dest_Trueprop |> HOL_to_FOL.dest_disj
+        val clause = th |> Thm.concl_of |> FOLogic.dest_Trueprop |> FOLogic.dest_disj
         val clause' = remove1 (op =) neg clause
         val _ = @{assert} (List.length clause' = List.length clause - 1)
 
