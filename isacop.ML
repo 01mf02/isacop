@@ -167,7 +167,7 @@ val pretty_clauses = Pretty.block o Pretty.separate " \<and>" o map (Pretty.encl
 end
 
 
-signature FOL_TO_HOL =
+signature COP_TO_ISA =
 sig
 
 datatype proof =
@@ -181,7 +181,7 @@ val reconstruct : Proof.context -> Termmap.bimap -> Skolemisation.table ->
 
 end
 
-structure FOL_to_HOL : FOL_TO_HOL =
+structure CoP_to_Isa : COP_TO_ISA =
 struct
 
 datatype proof =
@@ -266,7 +266,7 @@ fun unskolemise tab x = case (Termmap.forward (tab, Skolemisation.skolem_functio
     | NONE => raise Fail "unskolemise"
 
 fun transform_res symtab sub res =
-  let val (_, off, (_, _, vars, thinfo)) = res
+  let val (_, (off, (_, _, vars, thinfo))) = res
       val (i, (thm, (quants, skolems, _)) : Skolemisation.mapping) = thinfo
       val skolems' = map (unskolemise symtab) skolems
       val subs = get_subs off vars sub
@@ -294,7 +294,7 @@ fun conv_lit (sub, maps, acc) (P, Pa) =
 
 fun real_recon data (mlCoP.Lemma t) ths = (Lemma (conv_lit data t), ths)
   | real_recon data (mlCoP.Path t) ths = (Path (conv_lit data t), ths)
-  | real_recon data (mlCoP.Resolution (t, _, _)) (th::ths) = (Resolution (conv_lit data t, th), ths)
+  | real_recon data (mlCoP.Resolution (t, _)) (th::ths) = (Resolution (conv_lit data t, th), ths)
   | real_recon _ _ _ = raise Fail "real_recon"
 
 fun pretty_step ctxt (Path t) = Pretty.block [Pretty.str "Path: ", Syntax.pretty_term ctxt t]
