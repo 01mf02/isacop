@@ -347,34 +347,34 @@ fun flip_polarity t =
   end
 
 (* prove theorems of the shape "a \<or> b \<or> c \<longrightarrow> b \<or> c \<or> a \<or> c" *)
-fun reorder_disj ctxt =
-  resolve_tac ctxt @{thms impI} 1 THEN
-  TRY (assume_tac ctxt 1) THEN  (* in case of sth. like a \<longrightarrow> a *)
-  REPEAT
-   (eresolve_tac ctxt @{thms disjE} 1 THEN
-    REPEAT (CHANGED (Prenex.simp_tac_only ctxt @{thms disj_simps not_simps} 1)))
+fun disj_imp_tac ctxt i =
+  resolve_tac ctxt @{thms impI} i THEN
+  REPEAT (SOMEGOAL (eresolve_tac ctxt @{thms disjE})) THEN
+  ALLGOALS (asm_simp_tac ctxt)
 
-fun disj_imp_tac ctxt =
-  resolve_tac ctxt @{thms impI} THEN_ALL_NEW
-  (
-    Prenex.simp_tac_only ctxt @{thms disj_simps not_simps} ORELSE'
-    eresolve_tac ctxt @{thms disjE})
+fun prove_with_tac t tac = Goal.prove @{context} [] [] t (K (tac @{context} 1))
+
+val _ = prove_with_tac @{prop "a \<or> b \<or> c \<longrightarrow> b \<or> c \<or> a \<or> c"} disj_imp_tac
+val _ = prove_with_tac @{prop "a \<longrightarrow> a"} disj_imp_tac
+
 
 (* create \<not>p1, \<not>p2, ..., \<not>pn, p1 \<or> p2 \<or> ... \<or> pn \<or> c |- c *)
 (* attention: premises are reversed! *)
+(* TODO: change foldl to foldr? *)
 fun make_contrapos ctxt prems concl =
   let
-    val _ = @{print} "contrapos start"
-    val prems' = prems
-    val _ = @{print} "prems destroyed"
-    val concl' = concl
-    val _ = @{print} "concl destroyed"
-    val disj = List.foldl FOLogic.mk_disj concl' prems' |> FOLogic.mk_Trueprop
-    val _ = @{print} "disj created"
+    val disj = List.foldl FOLogic.mk_disj concl prems |> FOLogic.mk_Trueprop
     val negs = map (FOLogic.mk_Trueprop o flip_polarity) prems
     val goal = List.foldl Logic.mk_implies (FOLogic.mk_Trueprop concl) (disj :: negs)
     val res = Goal.prove ctxt [] [] goal (fn _ => Prenex.simp_tac_only ctxt @{thms disj_simps not_simps} 1)
   in (disj, res)
+  end
+
+val _ =
+  let
+    val (disj, concl) = ([@{term "a::o"}, @{term "\<not>b::o"}], @{term "c::o"})
+    val (_, th) = make_contrapos @{context} disj concl
+  in @{assert} ((Thm.prop_of th) aconv @{term "b \<Longrightarrow> \<not> a \<Longrightarrow> \<not> b \<or> a \<or> c \<Longrightarrow> c"})
   end
 
 
@@ -403,10 +403,23 @@ val _ =
      @{assert} (fr @{cprop "a \<Longrightarrow> \<not>a"} = @{prop "\<not>a"})
   end
 
+(* Prove disjunction from the conclusion of the theorem. *)
+fun disj_rule ctxt disj th =
+  let
+    val imp = FOLogic.mk_imp (FOLogic.dest_Trueprop (Thm.concl_of th), FOLogic.dest_Trueprop disj)
+    val imp_th = Goal.prove ctxt [] [] (FOLogic.mk_Trueprop imp) (K (disj_imp_tac ctxt 1))
+  in @{thm mp} OF [imp_th, th]
+  end
+
+val _ =
+  let fun dr gl = Thm.assume #> disj_rule @{context} gl
+      val (gl, ass) = (@{prop "a \<or> b"}, @{cprop "b \<or> a"})
+  in @{assert} ((Thm.prop_of (dr gl ass)) aconv gl)
+  end
+
 fun recon ctxt _ (FOL_to_HOL.Path t :: tl) =
-      let val t' = t |> flip_polarity |> FOLogic.mk_Trueprop
-          val ct = Thm.cterm_of ctxt t'
-      in (Thm.assume ct, tl, ctxt)
+      let val neg = flip_polarity #> FOLogic.mk_Trueprop #> Thm.cterm_of ctxt
+      in (Thm.assume (neg t), tl, ctxt)
       end
   | recon ctxt lemmas (FOL_to_HOL.Lemma t :: tl) =
       (case List.find (fn x => Thm.concl_of x = t) lemmas of
@@ -423,12 +436,7 @@ fun recon ctxt _ (FOL_to_HOL.Path t :: tl) =
         val (disj, contra) = make_contrapos ctxt rest negt
         val _ = @{print} "After contrapos"
 
-        val disj_imp = FOLogic.mk_imp (FOLogic.dest_Trueprop (Thm.concl_of th), FOLogic.dest_Trueprop disj)
-        val _ = @{print} disj_imp
-        val disj_imp_prf = Goal.prove ctxt [] [] (FOLogic.mk_Trueprop disj_imp) (fn _ => reorder_disj ctxt)
-        val _ = @{print} disj_imp_prf
-        val disj_prf = @{thm mp} OF [disj_imp_prf, th]
-        val _ = @{print warning} disj_prf
+        val disj_prf = disj_rule ctxt disj th
 
         fun foldf _ (found, lms, prf, ctxt) =
           let val (nthm, nprf, nctxt) = recon ctxt lms prf
