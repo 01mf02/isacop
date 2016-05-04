@@ -268,10 +268,7 @@ sig
 type path
 type lemmas
 
-datatype 'a proof_step =
-    Lemma of FTerm.lit
-  | Path of FTerm.lit
-  | Resolution of FTerm.lit * (Unif.offset * 'a Matrix.contrapositive)
+type 'a proof_step
 type 'a proof
 
 type history
@@ -295,10 +292,7 @@ type lemmas = FTerm.lit list
 type history = path * lemmas * int
 
 
-datatype 'a proof_step =
-    Lemma of FTerm.lit
-  | Path of FTerm.lit
-  | Resolution of FTerm.lit * (Unif.offset * 'a Matrix.contrapositive)
+type 'a proof_step = (FTerm.lit, Unif.offset * 'a Matrix.contrapositive) CProof.proof_step
 type 'a proof = 'a proof_step list
 
 (* continuation types *)
@@ -321,7 +315,7 @@ fun prove mat sub (hist as (path, lem, _)) alt todo prf cla =
            then alt ()
          (* if literal is among the lemmas, remove it and treat rest clause *)
          else if List.exists (Unif.eq sub lit) lem
-           then prove mat sub hist nalt todo (Lemma lit :: prf) rest
+           then prove mat sub hist nalt todo (CProof.Lemma lit :: prf) rest
          else
            reduce mat sub lit rest hist alt todo prf path
      end)
@@ -335,7 +329,7 @@ and reduce mat sub lit rest hist alt todo prf path =
         let (* possibly try to reduce with other literal on path later *)
             fun cont () = reduce mat sub lit rest hist alt todo prf pt
             val nalt = if cut2 then alt else cont
-        in prove mat nsub hist nalt todo (Path lit :: prf) rest
+        in prove mat nsub hist nalt todo (CProof.Path lit :: prf) rest
         end
     | NONE => extend mat sub lit rest hist alt todo prf (Matrix.entries mat neglit)
     end
@@ -350,7 +344,7 @@ and extend mat sub lit rest (hist as (path, lem, lim)) alt todo prf entries =
       SOME (entry, (nsub, cla1), et) =>
           let val hist1 = (lit :: path, lem, lim - 1)
               val hist2 = (path, lit :: lem, lim)
-              val prf1  = Resolution (lit, (snd sub, entry)) :: prf
+              val prf1  = CProof.Resolution (lit, (snd sub, entry)) :: prf
               fun todo1 sub alt2 prf = prove mat sub hist2 (if cut3 then alt else alt2) todo prf rest
               fun alt1 () = extend mat sub lit rest hist alt todo prf et
           in  prove mat nsub hist1 alt1 todo1 prf1 cla1
