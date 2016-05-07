@@ -22,6 +22,15 @@ fun obtain_exists th =
   Obtain.result (fn ctxt => eresolve_tac ctxt @{thms exE} 1) [th] #>>
   (fn (x, th') => (the_single x, the_single th'))
 
+fun atomize_thm ctxt thm =
+  let
+    val thm' = forall_intr_vars thm
+    val thm'' = thm' |> Thm.cprop_of |> Object_Logic.atomize ctxt
+    val same = Thm.concl_of #> Logic.dest_equals #> op =
+  (* to prevent loop, rewrite only if atomizing changed something *)
+  in if same thm'' then thm' else Simplifier.rewrite_rule ctxt [thm''] thm'
+  end
+
 fun prove_with_tac t tac = Goal.prove @{context} [] [] t (K (tac @{context} 1))
 
 
@@ -32,9 +41,19 @@ fun flip f x y = f y x
 
 fun do_while f (continue, acc) = if continue then do_while f (f acc) else acc
 
+fun elim_equals eq l =
+  let fun f x (prev, i) = case AList.lookup eq prev x of
+      SOME j => (j, (prev, i))
+    | NONE => (i, ((x, i) :: prev, i + 1))
+  in fold_map f l ([], 0)
+  end;
+
+val _ = @{assert}
+ (elim_equals (op =) ["a", "b", "a", "c"] =
+  ([0, 1, 0, 2], ([("c", 2), ("b", 1), ("a", 0)], 3)))
+
 
 val hashek_and = @{lemma "P \<and> hashek \<Longrightarrow> P" by (simp add: hashek_def)}
-val hashek_not = @{lemma "\<not>hashek \<Longrightarrow> False" by (simp add: hashek_def)}
 
 
 (* Negate goal and move it to first position. *)
@@ -62,8 +81,8 @@ structure Termmap = IntBimap (type key = term val ord = Term_Ord.fast_term_ord)
 signature SKOLEMISATION =
 sig
 
-type table
 type mapping
+type table
 type quant_type
 
 val skolem_function : string -> term
@@ -79,9 +98,16 @@ datatype quant_type = All | Ex
 
 (* all/ex, (name, type) *)
 type quant_info = quant_type * (string * typ)
-(* theorem, (quantifiers, Skolem names, term without quantifiers *)
-type mapping = thm * (quant_info list * string list * term)
+
+type skolemised = {
+  quantifiers : quant_info list
+, skolems : string list
+, skolemised : term
+}
+
+type mapping = thm * skolemised
 type table = mapping list
+
 
 fun quant_of @{const_name "All"} = SOME All
   | quant_of @{const_name "Ex" } = SOME Ex
@@ -114,7 +140,7 @@ fun skolemise_assm assm ctxt =
     val (quants, bare) = strip_quants [] t
     val quants' = quants ~~ ((List.length quants - 1) downto 0)
     val ((ex, sk), ctxt') = skolemise_term [] [] quants' bare ctxt
-  in ((assm, (quants, ex, sk)), ctxt')
+  in ((assm, { quantifiers = quants, skolems = ex, skolemised = sk }), ctxt')
   end
 
 fun skolemise_assms assms = fold_map skolemise_assm assms Name.context |> fst
@@ -178,26 +204,23 @@ fun pretty_term (FTerm.V v) = Pretty.str ("v" ^ Int.toString v)
 
 fun pretty_lit (P, args) = pretty_term (FTerm.A (P, args))
 val pretty_clause = Pretty.separate " \<or>" o map pretty_lit
-val pretty_clauses = Pretty.block o Pretty.separate " \<and>" o map (Pretty.enclose "(" ")" o pretty_clause)
+val pretty_clauses = Pretty.block o Pretty.separate " \<and>" o
+  map (Pretty.enclose "(" ")" o pretty_clause)
 
 end
 
-
-signature COP_TO_ISA =
+signature IPROOF =
 sig
 
 type proof
 
-val reconstruct : Proof.context -> Termmap.bimap -> Skolemisation.table ->
-  Subst.subst * (int * Skolemisation.mapping) mlCoP.proof ->
-  Proof.context * (FTerm.term * term) list * thm list * proof
-
 end
 
-structure CoP_to_Isa : COP_TO_ISA =
+structure IProof =
 struct
 
-type proof = (term, thm) CProof.proof
+type cproof = (int * Skolemisation.mapping) mlCoP.proof
+type iproof = (term, thm) CProof.proof
 
 fun pretty_step ctxt (CProof.Path t) =
       Pretty.block [Pretty.str "Path: " , Syntax.pretty_term ctxt t]
@@ -207,17 +230,39 @@ fun pretty_step ctxt (CProof.Path t) =
       [Pretty.str "Resolution: ", Syntax.pretty_term ctxt t,
        Pretty.str ", ", Thm.pretty_thm ctxt th]
 
+end
+
+
+signature COP_TO_ISA =
+sig
+
+val convert_proof :
+  Proof.context -> Termmap.bimap * Skolemisation.table ->
+  Subst.subst * IProof.cproof -> Proof.context * IProof.iproof
+
+end
+
+structure CoP_to_Isa : COP_TO_ISA =
+struct
+
+fun unskolemise tab x =
+  case (Termmap.forward (tab, Skolemisation.skolem_function x)) of
+      SOME s => s
+    | NONE => raise Fail "unskolemise"
+
 fun conv_sym tab sym = case Termmap.backward (tab, sym) of
       SOME t => t
     | NONE => raise Fail ("conv_sym: " ^ Int.toString sym)
 
 
+fun self_mapping off vars = map (fn v => (v, FTerm.V v)) (off upto off + vars - 1)
+
 fun get_subs off vars =
      filter (fn (v, _) => off <= v andalso v < off + vars)
      (*if substitution does not contain binding for variable, create one to itself*)
-  #> union (fn ((u, _), (v, _)) => u = v) (map (fn v => (v, FTerm.V v)) (off upto off + vars - 1))
-  #> sort (prod_ord int_ord (K EQUAL))
-  #> rev
+  #> union (fn ((u, _), (v, _)) => u = v) (self_mapping off vars)
+
+val order_subs = sort (prod_ord int_ord (K EQUAL)) #> rev
 
 
 exception Unsubst
@@ -228,12 +273,11 @@ datatype quant_info =
     (* existential quantifier has a certain FO identifier *)
   | Ex of int
 
-fun invent_universal2 v ctxt =
-  let (*TODO: Perhaps we need to do more here? (Making type most general?)
+(*TODO: Perhaps we need to do more here? (Making type most general?)
         See Isar Implementation manual from 2016, p. 119 *)
-      val (var, ctxt') = Variable.variant_fixes [Int.toString v] ctxt
-      val t' = Syntax.read_term ctxt' (the_single var)
-  in (t', ctxt')
+fun invent_universals ctxt v =
+  let val (vars, ctxt') = Variable.variant_fixes (map Int.toString v) ctxt
+  in (Syntax.read_terms ctxt' vars, ctxt')
   end
 
 fun unsub2 (maps as (symmap, skolems)) t (acc as (tmmap, ctxt)) =
@@ -242,7 +286,7 @@ fun unsub2 (maps as (symmap, skolems)) t (acc as (tmmap, ctxt)) =
   | NONE =>
       (case t of
         FTerm.V v =>
-          let val (t', ctxt') = invent_universal2 v ctxt
+          let val (t', ctxt') = invent_universals ctxt [v] |>> the_single
           in (t', ((FTerm.V v, t') :: tmmap, ctxt'))
           end
       | FTerm.A (f, fa) =>
@@ -270,17 +314,13 @@ fun treat_qu maps (todo as (prev, All sub :: quants, th)) (acc as (tmmap, ctxt, 
   | treat_qu _ todo acc = (todo, acc)
 
 
-fun unskolemise tab x =
-  case (Termmap.forward (tab, Skolemisation.skolem_function x)) of
-      SOME s => s
-    | NONE => raise Fail "unskolemise"
 
 fun transform_res symtab sub res =
   let val (_, (off, (_, _, vars, thinfo))) = res
-      val (i, (thm, (quants, skolems, _)) : Skolemisation.mapping) = thinfo
+      val (i, (thm, ({quantifiers, skolems, ...}))) = thinfo
       val skolems' = map (unskolemise symtab) skolems
-      val subs = get_subs off vars sub
-      val quant_info = Skolemisation.fold_quants (All, Ex) (map fst quants) (map snd subs, skolems')
+      val subs = get_subs off vars sub |> order_subs
+      val quant_info = Skolemisation.fold_quants (All, Ex) (map fst quantifiers) (map snd subs, skolems')
   in ((i, thm), quant_info)
   end
 
@@ -293,24 +333,14 @@ val verify_result =
   List.map (fn (_, quants, th) =>
     case quants of [] => th | _ => raise Fail "quantifiers left to instantiate")
 
-fun conv_lit (sub, maps, acc) (P, Pa) =
+fun clit_to_ilit P Pa =
   let val (sign, P') = if P < 0 then (fn x => FOLogic.not $ x, ~P) else (I, P)
-      val t = (FTerm.A (P', Pa))
-      val t' = Subst.transitive sub t
-  in unsub2 maps t' acc |> fst |> sign
+  in (FTerm.A (P', Pa), sign)
   end
 
-
-fun elim_equals eq l =
-  let fun f x (prev, i) = case AList.lookup eq prev x of
-      SOME j => (j, (prev, i))
-    | NONE => (i, ((x, i) :: prev, i + 1))
-  in fold_map f l ([], 0)
-  end;
-
-val _ = @{assert}
- (elim_equals (op =) ["a", "b", "a", "c"] =
-  ([0, 1, 0, 2], ([("c", 2), ("b", 1), ("a", 0)], 3)))
+(* TODO: This ignores the change of the accumulator from unsub2! *)
+fun conv_lit (sub, maps, acc) (P, Pa) =
+  clit_to_ilit P Pa |>> Subst.transitive sub |>> flip (unsub2 maps) acc |>> fst |> (op |>)
 
 fun boo res =
   let
@@ -320,18 +350,18 @@ fun boo res =
       we can put them back into their place later
       otherwise, existentials may be instantiated several times!*)
     fun thform_eq ((_, q1, th1), (_, q2, th2)) = q1 = q2 andalso Thm.concl_of th1 = Thm.concl_of th2
-    val (is, (thuniq, _)) = elim_equals (thform_eq) thform
+    val (is, (thuniq, _)) = elim_equals thform_eq thform
     val thuniq' = List.rev (map fst thuniq)
   in (is, thuniq')
   end
 
-fun reconstruct ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
+fun convert_proof ctxt (symtab, sktab) (sub, prf) =
   let
     val sub' = Subst.normalise sub
     val res = map_filter CProof.destResolution prf |> map (transform_res symtab sub')
     val (is, thuniq') = boo res
 
-    val skolems = List.map (fn (_, (_, syms, _)) => syms) sktab |> List.concat
+    val skolems = List.map (#skolems o #2) sktab |> List.concat
 
     val _ = @{print} "Before instantiation ..."
     val (ctxt', tmmap, final) =
@@ -341,9 +371,9 @@ fun reconstruct ctxt symtab (sktab : Skolemisation.table) (sub, prf) =
     val verified = verify_result final'
     fun real_recon data = CProof.fold_proof (conv_lit data) (hd_tl o snd)
     val (prf', _) = fold_map (real_recon (sub', (symtab, skolems), (tmmap, ctxt'))) prf verified
-    val _ = Pretty.writeln_chunks (map (pretty_step ctxt') prf')
+    val _ = Pretty.writeln_chunks (map (IProof.pretty_step ctxt') prf')
   in
-    (ctxt', tmmap, verified, prf')
+    (ctxt', prf')
   end
 
 end
@@ -454,6 +484,8 @@ fun recon ctxt _ (CProof.Path t :: tl) =
       end
   | recon _ _ _ = raise Fail "recon"
 
+fun reconstruct ctxt = List.rev #> recon ctxt [] #> fst
+
 end
 
 structure Equivalence =
@@ -522,7 +554,7 @@ val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20);
 
 exception Solved
 
-val prove_some =
+val prove_option =
   let fun todo sub _ prf = SOME (fst sub, prf)
       fun alt () = NONE
   in  mlCoP.prove_default alt todo
@@ -534,40 +566,37 @@ fun recon_info (cls, prem) = map_index (fn (i, cl) => (cl, (i, prem))) cls
 
 
 
-fun reconstruct ctxt (symtab, sktab) p =
+fun reconstruct ctxt tabs p =
   let
-    val (ctxt', _, _, prf) = CoP_to_Isa.reconstruct ctxt symtab sktab p
-    val (finalth, _) = Reconstruction.recon ctxt' [] (List.rev prf)
-    val finalth' = singleton (Proof_Context.export ctxt' ctxt) finalth
-  in hashek_not OF [finalth']
+    val (ctxt', prf) = CoP_to_Isa.convert_proof ctxt tabs p
+    val th = Reconstruction.reconstruct ctxt' prf
+    val hashek_not = @{lemma "\<not>hashek \<Longrightarrow> False" by (simp add: hashek_def)}
+  in hashek_not OF (Proof_Context.export ctxt' ctxt [th])
   end
+
+fun clause_matrix cls = Matrix.empty 10000 |> tap (flip Matrix.insert_clauses cls)
+
+fun to_ml prems =
+  let
+    val sktab = Skolemisation.skolemise_assms prems
+    val symm = Termmap.insert (Termmap.empty 10000, @{const hashek}) |> fst
+    val (clss, symtab) = sktab |> map (#skolemised o #2) |> Isa_to_CoP.convert symm
+
+    val cls = ListPair.mapEq recon_info (clss, sktab) |> List.concat
+    val _ = cls |> List.map #1 |> FTerm.pretty_clauses |> Pretty.writeln
+  in (clause_matrix cls, (symtab, sktab))
+  end
+
 
 fun raw_isacop lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, concl: cterm, ...} =>
   let
     val _ = @{assert} ((Thm.term_of concl) aconv @{prop False})
-
-    val sktab = Skolemisation.skolemise_assms prems
-    val symm = Termmap.insert (Termmap.empty 10000, @{const hashek}) |> fst
-    val (clss, symtab) = sktab |> map (#3 o #2) |> Isa_to_CoP.convert symm
-
-    val cls = ListPair.mapEq recon_info (clss, sktab) |> List.concat
-    val _ = cls |> List.map #1 |> FTerm.pretty_clauses |> Pretty.writeln
-    val mat = Matrix.empty 10000
-    val _ = Matrix.insert_clauses mat cls
-    val tac = case prove_some mat lim of
-        SOME p => resolve_tac ctxt [reconstruct ctxt (symtab, sktab) p]
-      | NONE => (writeln "Sorry, no proof found."; K no_tac)
+    val (mat, tabs) = to_ml prems
+    val tac = case prove_option mat lim of
+        SOME p => resolve_tac ctxt [reconstruct ctxt tabs p]
+      | NONE => (@{print} "No connection proof found."; K no_tac)
   in HEADGOAL tac
   end)
-
-fun atomize_thm ctxt thm =
-  let
-    val thm' = forall_intr_vars thm
-    val thm'' = Object_Logic.atomize ctxt (Thm.cprop_of thm')
-    val (l, r) = Logic.dest_equals (Thm.concl_of thm'')
-  (* if atomizing did not change anything, do not run into a rewrite loop! *)
-  in if l = r then thm' else Simplifier.rewrite_rule ctxt [thm''] thm'
-  end
 
 fun isacop_method (lim, ths) ctxt facts =
   let
