@@ -219,7 +219,7 @@ end
 structure IProof =
 struct
 
-type cproof = (int * Skolemisation.mapping) mlCoP.proof
+type fproof = (int * Skolemisation.mapping) mlCoP.proof
 type iproof = (term, thm) CProof.proof
 
 fun pretty_step ctxt (CProof.Path t) =
@@ -238,7 +238,7 @@ sig
 
 val convert_proof :
   Proof.context -> Termmap.bimap * Skolemisation.table ->
-  Subst.subst * IProof.cproof -> Proof.context * IProof.iproof
+  Subst.subst * IProof.fproof -> Proof.context * IProof.iproof
 
 end
 
@@ -250,7 +250,8 @@ fun unskolemise tab x =
       SOME s => s
     | NONE => raise Fail "unskolemise"
 
-fun conv_sym tab sym = case Termmap.backward (tab, sym) of
+fun conv_sym tab sym =
+  case Termmap.backward (tab, sym) of
       SOME t => t
     | NONE => raise Fail ("conv_sym: " ^ Int.toString sym)
 
@@ -258,8 +259,8 @@ fun conv_sym tab sym = case Termmap.backward (tab, sym) of
 fun self_mapping off vars = map (fn v => (v, FTerm.V v)) (off upto off + vars - 1)
 
 fun get_subs off vars =
-     filter (fn (v, _) => off <= v andalso v < off + vars)
-     (*if substitution does not contain binding for variable, create one to itself*)
+  filter (fn (v, _) => off <= v andalso v < off + vars)
+  (*if substitution does not contain binding for variable, create one to itself*)
   #> union (fn ((u, _), (v, _)) => u = v) (self_mapping off vars)
 
 val order_subs = sort (prod_ord int_ord (K EQUAL)) #> rev
@@ -280,27 +281,25 @@ fun invent_universals ctxt v =
   in (Syntax.read_terms ctxt' vars, ctxt')
   end
 
-fun unsub2 (maps as (symmap, skolems)) t (acc as (tmmap, ctxt)) =
+fun convert_term maps t (acc as (_, tmmap)) =
   case AList.lookup (op =) tmmap t of
-    SOME ho => (ho, acc)
-  | NONE =>
-      (case t of
-        FTerm.V v =>
-          let val (t', ctxt') = invent_universals ctxt [v] |>> the_single
-          in (t', ((FTerm.V v, t') :: tmmap, ctxt'))
-          end
-      | FTerm.A (f, fa) =>
-          let val f' = conv_sym symmap f
-              val _ = case fst (strip_comb f') of
-                  Const (fh, _) => if member (op =) skolems fh then raise Unsubst else ()
-                | _ => ();
-              val (args', acc') = fold_map (unsub2 maps) fa acc
-          in  (list_comb (f', args'), acc')
-          end
-      )
+    SOME t' => (t', acc)
+  | NONE => convert_fresh_term maps t acc
+and convert_fresh_term _ (FTerm.V v) (ctxt, tmmap) =
+    let val (t', ctxt') = invent_universals ctxt [v] |>> the_single
+    in (t', (ctxt', (FTerm.V v, t') :: tmmap))
+    end
+  | convert_fresh_term (maps as (symmap, skolems)) (FTerm.A (f, fa)) acc =
+    let val f' = conv_sym symmap f
+        val _ = case fst (strip_comb f') of
+            Const (fh, _) => if member (op =) skolems fh then raise Unsubst else ()
+          | _ => ();
+        val (args', acc') = fold_map (convert_term maps) fa acc
+    in  (list_comb (f', args'), acc')
+    end
 
 fun treat_qu maps (todo as (prev, All sub :: quants, th)) (acc as (tmmap, ctxt, _)) =
-     (let val (ho, (tmmap', ctxt')) = unsub2 maps sub (tmmap, ctxt)
+     (let val (ho, (ctxt', tmmap')) = convert_term maps sub (ctxt, tmmap)
           val th' = inst_spec (Thm.cterm_of ctxt ho) th
       in treat_qu maps (sub::prev, quants, th') (tmmap', ctxt', true)
       end
@@ -333,14 +332,14 @@ val verify_result =
   List.map (fn (_, quants, th) =>
     case quants of [] => th | _ => raise Fail "quantifiers left to instantiate")
 
-fun clit_to_ilit P Pa =
+fun lit_sign (P, Pa) =
   let val (sign, P') = if P < 0 then (fn x => FOLogic.not $ x, ~P) else (I, P)
   in (FTerm.A (P', Pa), sign)
   end
 
 (* TODO: This ignores the change of the accumulator from unsub2! *)
-fun conv_lit (sub, maps, acc) (P, Pa) =
-  clit_to_ilit P Pa |>> Subst.transitive sub |>> flip (unsub2 maps) acc |>> fst |> (op |>)
+fun conv_lit (sub, maps, acc) =
+  lit_sign #>> Subst.transitive sub #>> flip (convert_term maps) acc #>> fst #> (op |>)
 
 fun boo res =
   let
@@ -370,7 +369,7 @@ fun convert_proof ctxt (symtab, sktab) (sub, prf) =
     val final' = List.map (fn i => List.nth (final, i)) is
     val verified = verify_result final'
     fun real_recon data = CProof.fold_proof (conv_lit data) (hd_tl o snd)
-    val (prf', _) = fold_map (real_recon (sub', (symtab, skolems), (tmmap, ctxt'))) prf verified
+    val (prf', _) = fold_map (real_recon (sub', (symtab, skolems), (ctxt', tmmap))) prf verified
     val _ = Pretty.writeln_chunks (map (IProof.pretty_step ctxt') prf')
   in
     (ctxt', prf')
