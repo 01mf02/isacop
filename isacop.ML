@@ -529,14 +529,10 @@ val _ =
   in @{assert} (cong (dest_Const @{term "True"}) @{lemma "True \<Longrightarrow> True" by simp})
   end
 
-
-val fol_blacklist = [@{const_name IFOL.Trueprop}, @{const_name IFOL.eq}]
-val pure_blacklist = [@{const_name Pure.imp}]
-val const_blacklist = fol_blacklist @ pure_blacklist
-
 fun cong_consts ts =
   fold Term.add_consts ts []
-  |> filter_out (member (op =) const_blacklist o fst)
+  |> filter_out (fst #> member (op =) [@{const_name IFOL.eq}])
+  |> filter_out (snd #> binder_types #> exists (fn T => T = @{typ o} orelse T = @{typ prop}))
 
 fun cong_axioms ctxt = (* map invent_tfrees #> *) cong_consts #> map (congr ctxt)
 
