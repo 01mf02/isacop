@@ -81,13 +81,12 @@ structure Termmap = IntBimap (type key = term val ord = Term_Ord.fast_term_ord)
 signature SKOLEMISATION =
 sig
 
-type mapping
-type table
+type skolemised
 type quant_type
 
 val skolem_function : string -> term
 val fold_quants : ('a -> 'c) * ('b -> 'c) -> quant_type list -> 'a list * 'b list -> 'c list
-val skolemise_assms : thm list -> table
+val skolemise_ths : thm list -> skolemised list
 
 end
 
@@ -104,9 +103,6 @@ type skolemised = {
 , skolems : string list
 , skolemised : term
 }
-
-type mapping = thm * skolemised
-type table = mapping list
 
 
 fun quant_of @{const_name "All"} = SOME All
@@ -134,16 +130,16 @@ fun skolemise_term all ex (((quant, (x, _)), quanti) :: quants) t ctxt =
       end)
   | skolemise_term _ ex [] t ctxt = ((rev ex, t), ctxt)
 
-fun skolemise_assm assm ctxt =
+fun skolemise_th th ctxt =
   let
-    val t = assm |> Thm.concl_of |> FOLogic.dest_Trueprop
+    val t = th |> Thm.concl_of |> FOLogic.dest_Trueprop
     val (quants, bare) = strip_quants [] t
     val quants' = quants ~~ ((List.length quants - 1) downto 0)
     val ((ex, sk), ctxt') = skolemise_term [] [] quants' bare ctxt
-  in ((assm, { quantifiers = quants, skolems = ex, skolemised = sk }), ctxt')
+  in ({ quantifiers = quants, skolems = ex, skolemised = sk }, ctxt')
   end
 
-fun skolemise_assms assms = fold_map skolemise_assm assms Name.context |> fst
+fun skolemise_ths ths = fold_map skolemise_th ths Name.context |> fst
 
 
 fun map_quant (fa, _) All (hd :: tl, ex) = (fa hd, (tl,  ex))
@@ -185,7 +181,7 @@ val conv_asms = fold_map conv_clauses
 
 val clausify = map FOLogic.dest_disj o FOLogic.dest_conj
 
-fun convert tab = map clausify #> flip conv_asms tab
+fun convert_terms tab = map clausify #> flip conv_asms tab
 
 end
 
@@ -219,7 +215,7 @@ end
 structure IProof =
 struct
 
-type fproof = (int * Skolemisation.mapping) mlCoP.proof
+type fproof = (int * (thm * Skolemisation.skolemised)) mlCoP.proof
 type iproof = (term, thm) CProof.proof
 
 fun pretty_step ctxt (CProof.Path t) =
@@ -237,7 +233,7 @@ signature COP_TO_ISA =
 sig
 
 val convert_proof :
-  Proof.context -> Termmap.bimap * Skolemisation.table ->
+  Proof.context -> Termmap.bimap * Skolemisation.skolemised list ->
   Subst.subst * IProof.fproof -> Proof.context * IProof.iproof
 
 end
@@ -360,7 +356,7 @@ fun convert_proof ctxt (symtab, sktab) (sub, prf) =
     val res = map_filter CProof.destResolution prf |> map (transform_res symtab sub')
     val (is, thuniq') = boo res
 
-    val skolems = List.map (#skolems o #2) sktab |> List.concat
+    val skolems = List.map #skolems sktab |> List.concat
 
     val _ = @{print} "Before instantiation ..."
     val (ctxt', tmmap, final) =
@@ -561,7 +557,7 @@ val prove_option =
 
 (* With every clause, save the theorem (premise) it came from, plus
    the index of the theorem conjunct that contains the clause.  *)
-fun recon_info (cls, prem) = map_index (fn (i, cl) => (cl, (i, prem))) cls
+fun recon_info (cls, th) = map_index (fn (i, cl) => (cl, (i, th))) cls
 
 
 
@@ -574,14 +570,14 @@ fun reconstruct ctxt tabs p =
   end
 
 fun clause_matrix cls = Matrix.empty 10000 |> tap (flip Matrix.insert_clauses cls)
+val init_termmap = Termmap.insert (Termmap.empty 10000, @{const hashek}) |> fst
 
-fun to_ml prems =
+fun mat_of_ths ths =
   let
-    val sktab = Skolemisation.skolemise_assms prems
-    val symm = Termmap.insert (Termmap.empty 10000, @{const hashek}) |> fst
-    val (clss, symtab) = sktab |> map (#skolemised o #2) |> Isa_to_CoP.convert symm
+    val sktab = Skolemisation.skolemise_ths ths
+    val (clss, symtab) = sktab |> map #skolemised |> Isa_to_CoP.convert_terms init_termmap
 
-    val cls = ListPair.mapEq recon_info (clss, sktab) |> List.concat
+    val cls = ListPair.mapEq recon_info (clss, ths ~~ sktab) |> List.concat
     val _ = cls |> List.map #1 |> FTerm.pretty_clauses |> Pretty.writeln
   in (clause_matrix cls, (symtab, sktab))
   end
@@ -590,7 +586,7 @@ fun to_ml prems =
 fun raw_isacop lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, concl: cterm, ...} =>
   let
     val _ = @{assert} ((Thm.term_of concl) aconv @{prop False})
-    val (mat, tabs) = to_ml prems
+    val (mat, tabs) = mat_of_ths prems
     val tac = case prove_option mat lim of
         SOME p => resolve_tac ctxt [reconstruct ctxt tabs p]
       | NONE => (@{print} "No connection proof found."; K no_tac)
