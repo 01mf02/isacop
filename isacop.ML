@@ -205,10 +205,22 @@ val pretty_clauses = Pretty.block o Pretty.separate " \<and>" o
 
 end
 
+structure CProof =
+struct
+
+open CProof
+open Pretty
+
+fun pretty_step (fl, _)  (Path  t) = block [str "Path: " , fl t]
+  | pretty_step (fl, _)  (Lemma t) = block [str "Lemma: ", fl t]
+  | pretty_step (fl, fr) (Resolution (t, th)) = block [str "Resolution: ", fl t, str ", ", fr th]
+
+fun pretty_proof f = map (pretty_step f) #> chunks
+
+end
+
 signature IPROOF =
 sig
-
-type proof
 
 end
 
@@ -218,13 +230,7 @@ struct
 type fproof = (int * (thm * Skolemisation.skolemised)) mlCoP.proof
 type iproof = (term, thm) CProof.proof
 
-fun pretty_step ctxt (CProof.Path t) =
-      Pretty.block [Pretty.str "Path: " , Syntax.pretty_term ctxt t]
-  | pretty_step ctxt (CProof.Lemma t) =
-      Pretty.block [Pretty.str "Lemma: ", Syntax.pretty_term ctxt t]
-  | pretty_step ctxt (CProof.Resolution (t, th)) = Pretty.block
-      [Pretty.str "Resolution: ", Syntax.pretty_term ctxt t,
-       Pretty.str ", ", Thm.pretty_thm ctxt th]
+fun pretty_iproof ctxt = CProof.pretty_proof (Syntax.pretty_term ctxt, Thm.pretty_thm ctxt)
 
 end
 
@@ -366,7 +372,7 @@ fun convert_proof ctxt (symtab, sktab) (sub, prf) =
     val verified = verify_result final'
     fun real_recon data = CProof.fold_proof (conv_lit data) (hd_tl o snd)
     val (prf', _) = fold_map (real_recon (sub', (symtab, skolems), (ctxt', tmmap))) prf verified
-    val _ = Pretty.writeln_chunks (map (IProof.pretty_step ctxt') prf')
+    val _ = IProof.pretty_iproof ctxt' prf' |> Pretty.writeln
   in
     (ctxt', prf')
   end
@@ -404,10 +410,10 @@ fun contrapos_rule ctxt clause concl =
   in (disj, res)
   end
 
-val _ =
+val contrapos_rule_test =
   let
     val (disj, concl) = ([@{term "a::o"}, @{term "\<not>b::o"}], @{term "c::o"})
-    val (_, th) = contrapos_rule @{context} disj concl |> tap @{print}
+    val (_, th) = contrapos_rule @{context} disj concl
   in @{assert} ((Thm.prop_of th) aconv @{term "a \<or> \<not> b \<or> c \<Longrightarrow> \<not> a \<Longrightarrow> b \<Longrightarrow> c"})
   end
 
@@ -429,8 +435,7 @@ fun finish_rule ctxt imp =
   in Thm.implies_elim neg_th' left_impl_false
   end
 
-(* Test finish_rule. *)
-val _ =
+val finish_rule_test =
   let val fr = Thm.assume #> finish_rule @{context} #> Thm.concl_of
   in @{assert} (fr @{cprop "\<not>a \<Longrightarrow> a"} = @{prop a});
      @{assert} (fr @{cprop "a \<Longrightarrow> \<not>a"} = @{prop "\<not>a"})
@@ -444,11 +449,34 @@ fun disj_rule ctxt disj th =
   in @{thm mp} OF [imp_th, th]
   end
 
-val _ =
+val disj_rule_test =
   let fun dr gl = Thm.assume #> disj_rule @{context} gl
       val (gl, ass) = (@{prop "a \<or> b"}, @{cprop "b \<or> a"})
   in @{assert} ((Thm.prop_of (dr gl ass)) aconv gl)
   end
+
+(* Given a term t and a theorem "x1 \<or> ... \<or> \<not>t \<or> ... \<or> xn", yield
+   ([x1, ..., xn], "\<not>x1 \<Longrightarrow> ... \<Longrightarrow> \<not>xn \<Longrightarrow> \<not>t"
+ *)
+fun resolve_rule ctxt t th =
+  let
+    val neg = flip_polarity t
+    val clause = th |> Thm.concl_of |> FOLogic.dest_Trueprop |> FOLogic.dest_disj
+    val clause' = remove1 (op =) neg clause
+    val _ = @{assert} (List.length clause' = List.length clause - 1)
+    val (disj, contra) = contrapos_rule ctxt clause' neg
+  in (clause', contra OF [disj_rule ctxt disj th])
+  end
+
+val resolve_rule_test =
+  let fun rt t = Thm.assume #> resolve_rule @{context} t ##> Thm.prop_of
+  in
+    @{assert} (rt @{term "b::o"} @{cprop "a \<or> \<not>b \<or> \<not>c"} =
+      ([@{term "a::o"}, @{term "\<not>c"}], @{term "\<not> a \<Longrightarrow> c \<Longrightarrow> \<not> b"}));
+    @{assert} (rt @{term "\<not>b::o"} @{cprop "b \<or> a \<or> c"} =
+       ([@{term "a::o"}, @{term "c::o"}], @{term "\<not> a \<Longrightarrow> \<not> c \<Longrightarrow> b"}))
+  end
+
 
 fun cprop_of ctxt = FOLogic.mk_Trueprop #> Thm.cterm_of ctxt
 
@@ -460,22 +488,16 @@ fun recon ctxt _ (CProof.Path t :: tl) =
       | NONE => raise Fail "lemma not found")
   | recon ctxt lemmas (CProof.Resolution (t, th) :: tl) =
       let
-        val neg = flip_polarity t
-        val clause = th |> Thm.concl_of |> FOLogic.dest_Trueprop |> FOLogic.dest_disj
-        val clause' = remove1 (op =) neg clause
-        val _ = @{assert} (List.length clause' = List.length clause - 1)
-
-        val (disj, contra) = contrapos_rule ctxt clause' neg
-        val disj_prf = disj_rule ctxt disj th
+        val (clause, contra) = resolve_rule ctxt t th
 
         fun foldf _ (found, lms, prf) =
           let val (nthm, nprf) = recon ctxt lms prf
           in (nthm :: found, nthm :: lms, nprf)
           end
 
-        val (ths, _, nprf) = fold foldf clause' ([], lemmas, tl)
-        val tprf = contra OF (disj_prf :: List.rev ths)
-      in (Thm.implies_intr (cprop_of ctxt t) tprf |> finish_rule ctxt, nprf)
+        val (ths, _, tl') = fold foldf clause ([], lemmas, tl)
+        val tprf = contra OF (List.rev ths)
+      in (Thm.implies_intr (cprop_of ctxt t) tprf |> finish_rule ctxt, tl')
       end
   | recon _ _ _ = raise Fail "recon"
 
@@ -543,19 +565,14 @@ struct
 
 val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20);
 
-exception Solved
-
+(* Unfortunately, we cannot move this to mlCoP, otherwise we have to give it a type,
+   and when giving it the automatically inferred type, we get an error:
+   "Type variable is free in surrounding scope" *)
 val prove_option =
   let fun todo sub _ prf = SOME (fst sub, prf)
       fun alt () = NONE
   in  mlCoP.prove_default alt todo
   end
-
-(* With every clause, save the theorem (premise) it came from, plus
-   the index of the theorem conjunct that contains the clause.  *)
-fun recon_info (cls, th) = map_index (fn (i, cl) => (cl, (i, th))) cls
-
-
 
 fun reconstruct ctxt tabs p =
   let
@@ -573,7 +590,10 @@ fun mat_of_ths ths =
     val sktab = Skolemisation.skolemise_ths ths
     val (clss, symtab) = sktab |> map #skolemised |> Isa_to_CoP.convert_terms init_termmap
 
-    val cls = ListPair.mapEq recon_info (clss, ths ~~ sktab) |> List.concat
+    (* With every clause, save the theorem (premise) it came from, plus
+       the index of the theorem conjunct that contains the clause.  *)
+    fun flatten (cls, th) = map_index (fn (i, cl) => (cl, (i, th))) cls
+    val cls = ListPair.mapEq flatten (clss, ths ~~ sktab) |> List.concat
     val _ = cls |> List.map #1 |> FTerm.pretty_clauses |> Pretty.writeln
   in (clause_matrix cls, (symtab, sktab))
   end
