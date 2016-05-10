@@ -31,6 +31,8 @@ fun atomize_thm ctxt thm =
   in if same thm'' then thm' else Simplifier.rewrite_rule ctxt [thm''] thm'
   end
 
+fun map_bndvars f = map_aterms (fn t => case t of Bound i => f i | _ => t)
+
 fun dest_conj_rule th =
   case Thm.prop_of th |> FOLogic.dest_Trueprop of Const (@{const_name conj}, _) $ _ $ _  =>
     (@{thm conjunct1} OF [th]) :: dest_conj_rule (@{thm conjunct2} OF [th])
@@ -88,35 +90,10 @@ fun clausify_tac ctxt =
 structure Termmap = IntBimap (type key = term val ord = Term_Ord.fast_term_ord)
 
 
-
-signature SKOLEMISATION =
-sig
-
-type skolemised
-type quant_type
-datatype ('a, 'e) quant_type2 = All of 'a | Ex of 'e
-
-val skolem_function : string -> term
-val fold_quants : ('a -> 'c) * ('b -> 'c) -> quant_type list -> 'a list * 'b list -> 'c list
-val skolemise_ths : thm list -> skolemised list
-
-end
-
-structure Skolemisation : SKOLEMISATION =
+structure Quantifier =
 struct
 
-datatype ('a, 'e) quant_type2 = All of 'a | Ex of 'e
-
-(* (name, type) *)
-type sty = string * typ
-type quant_type = (sty, sty) quant_type2
-
-type skolemised = {
-  quantifiers : quant_type list
-, skolems : string list
-, skolemised : term
-}
-
+datatype ('a, 'e) quantifier = All of 'a | Ex of 'e
 
 fun quant_of @{const_name "All"} = SOME All
   | quant_of @{const_name "Ex" } = SOME Ex
@@ -128,14 +105,39 @@ fun strip_quants quants (Const (quant, _) $ Abs (x, T, t)) =
       | NONE => (List.rev quants, t))
   | strip_quants quants t = (List.rev quants, t)
 
-fun map_bndvars f = map_aterms (fn t => case t of Bound i => f i | _ => t)
+end
+
+signature SKOLEMISATION =
+sig
+
+type skolemised
+type quant_type
+
+val skolem_function : string -> term
+val fold_quants : ('a -> 'c) * ('b -> 'c) -> quant_type list -> 'a list * 'b list -> 'c list
+val skolemise_ths : thm list -> skolemised list
+
+end
+
+structure Skolemisation : SKOLEMISATION =
+struct
+
+(* (name, type) *)
+type sty = string * typ
+type quant_type = (sty, sty) Quantifier.quantifier
+
+type skolemised = {
+  quantifiers : quant_type list
+, skolems : string list
+, skolemised : term
+}
 
 fun skolem_function name = Const (name, dummyT)
 
 fun skolemise_term all ex ((quant, quanti) :: quants) t ctxt =
   (case quant of
-    All _ => skolemise_term (quanti :: all) ex quants t ctxt
-  | Ex (x, _) =>
+    Quantifier.All _ => skolemise_term (quanti :: all) ex quants t ctxt
+  | Quantifier.Ex (x, _) =>
       let val (name, ctxt') = Name.variant (Name.skolem x) ctxt
           val skolem = list_comb (skolem_function name, List.map Bound (rev all))
           val t' = map_bndvars (fn i => if i = quanti then skolem else Bound i) t
@@ -146,7 +148,7 @@ fun skolemise_term all ex ((quant, quanti) :: quants) t ctxt =
 fun skolemise_th th ctxt =
   let
     val t = th |> Thm.concl_of |> FOLogic.dest_Trueprop
-    val (quants, bare) = strip_quants [] t
+    val (quants, bare) = Quantifier.strip_quants [] t
     val quants' = quants ~~ ((List.length quants - 1) downto 0)
     val ((ex, sk), ctxt') = skolemise_term [] [] quants' bare ctxt
   in ({ quantifiers = quants, skolems = ex, skolemised = sk }, ctxt')
@@ -155,8 +157,8 @@ fun skolemise_th th ctxt =
 fun skolemise_ths ths = fold_map skolemise_th ths Name.context |> fst
 
 
-fun map_quant (fa, _) (All _) (hd :: tl, ex) = (fa hd, (tl,  ex))
-  | map_quant (_, fe) (Ex _) (all, hd :: tl) = (fe hd, (all, tl))
+fun map_quant (fa, _) (Quantifier.All _) (hd :: tl, ex) = (fa hd, (tl,  ex))
+  | map_quant (_, fe) (Quantifier.Ex _) (all, hd :: tl) = (fe hd, (all, tl))
   | map_quant _ _ _ = raise Fail "map_quant"
 
 fun fold_quants fs = fst oo fold_map (map_quant fs)
@@ -287,7 +289,7 @@ val order_subs = sort (prod_ord int_ord (K EQUAL)) #> rev
 
 exception Unsubst
 
-type quant_info = (FTerm.term, int) Skolemisation.quant_type2
+type quant_info = (FTerm.term, int) Quantifier.quantifier
 
 (*TODO: Perhaps we need to do more here? (Making type most general?)
         See Isar Implementation manual from 2016, p. 119 *)
@@ -324,13 +326,13 @@ and convert_fresh_term _ (FTerm.V v) (ctxt, tmmap) =
     in  (list_comb (f', args'), acc')
     end
 
-fun treat_qu maps (todo as (prev, Skolemisation.All sub :: quants, (i, th))) (acc as (tmmap, ctxt, _)) =
+fun treat_qu maps (todo as (prev, Quantifier.All sub :: quants, (i, th))) (acc as (tmmap, ctxt, _)) =
      (let val (ho, (ctxt', tmmap')) = convert_term maps sub (ctxt, tmmap)
           val th' = inst_spec (Thm.cterm_of ctxt ho) th
       in treat_qu maps (sub::prev, quants, (i, th')) (tmmap', ctxt', true)
       end
       handle Unsubst => (todo, acc))
-  | treat_qu maps (prev, Skolemisation.Ex sk :: quants, (i, th)) (tmmap, ctxt, _) =
+  | treat_qu maps (prev, Quantifier.Ex sk :: quants, (i, th)) (tmmap, ctxt, _) =
       let val ((x, th'), ctxt') = obtain_exists th ctxt
           val skt = FTerm.A (sk, rev prev)
           val tmmap' = (skt, snd x |> Thm.term_of) :: tmmap
@@ -343,7 +345,8 @@ fun transform_res symtab sub res =
       val (i, (thm, ({quantifiers, skolems, ...} : Skolemisation.skolemised))) = thinfo
       val skolems' = map (unskolemise symtab) skolems
       val subs = get_subs off vars sub |> order_subs
-      val quant_info = Skolemisation.fold_quants (Skolemisation.All, Skolemisation.Ex) quantifiers (map snd subs, skolems')
+      (* TODO! *)
+      val quant_info = Skolemisation.fold_quants (Quantifier.All, Quantifier.Ex) quantifiers (map snd subs, skolems')
   in ((i, thm), quant_info)
   end
 
