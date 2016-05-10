@@ -105,7 +105,11 @@ fun strip_quants quants (Const (quant, _) $ Abs (x, T, t)) =
       | NONE => (List.rev quants, t))
   | strip_quants quants t = (List.rev quants, t)
 
+fun map_quant (fa, _) (All a) = fa a
+  | map_quant (_, fe) (Ex  e) = fe e
+
 end
+
 
 signature SKOLEMISATION =
 sig
@@ -339,6 +343,14 @@ fun treat_qu maps (todo as (prev, Quantifier.All sub :: quants, (i, th))) (acc a
       in treat_qu maps (prev, quants, (i, th')) (tmmap', ctxt', true)
       end
   | treat_qu _ todo acc = (todo, acc)
+
+(* TODO! *)
+val xx =
+  let fun fa _ (hd::tl, ex) = (Quantifier.All hd, (tl, ex))
+      fun fe _ (all, hd :: tl) = (Quantifier.Ex hd, (all, tl))
+  in 1
+  end
+
 
 fun transform_res symtab sub res =
   let val (_, (off, (_, _, vars, thinfo))) = res
