@@ -93,10 +93,10 @@ signature SKOLEMISATION =
 sig
 
 type skolemised
-type quant_type
+type ('a, 'e) quant_type
 
 val skolem_function : string -> term
-val fold_quants : ('a -> 'c) * ('b -> 'c) -> quant_type list -> 'a list * 'b list -> 'c list
+val fold_quants : ('a -> 'c) * ('b -> 'c) -> (unit, unit) quant_type list -> 'a list * 'b list -> 'c list
 val skolemise_ths : thm list -> skolemised list
 
 end
@@ -104,10 +104,10 @@ end
 structure Skolemisation : SKOLEMISATION =
 struct
 
-datatype quant_type = All | Ex
+datatype ('a, 'e) quant_type = All of 'a | Ex of 'e
 
 (* all/ex, (name, type) *)
-type quant_info = quant_type * (string * typ)
+type quant_info = (string * typ, string * typ) quant_type
 
 type skolemised = {
   quantifiers : quant_info list
@@ -122,7 +122,7 @@ fun quant_of @{const_name "All"} = SOME All
 
 fun strip_quants quants (Const (quant, _) $ Abs (x, T, t)) =
       (case quant_of quant of
-        SOME q => strip_quants ((q, (x, T)) :: quants) t
+        SOME q => strip_quants ((q (x, T)) :: quants) t
       | NONE => (List.rev quants, t))
   | strip_quants quants t = (List.rev quants, t)
 
@@ -130,10 +130,10 @@ fun map_bndvars f = map_aterms (fn t => case t of Bound i => f i | _ => t)
 
 fun skolem_function name = Const (name, dummyT)
 
-fun skolemise_term all ex (((quant, (x, _)), quanti) :: quants) t ctxt =
+fun skolemise_term all ex ((quant, quanti) :: quants) t ctxt =
   (case quant of
-    All => skolemise_term (quanti :: all) ex quants t ctxt
-  | Ex =>
+    All _ => skolemise_term (quanti :: all) ex quants t ctxt
+  | Ex (x, _) =>
       let val (name, ctxt') = Name.variant (Name.skolem x) ctxt
           val skolem = list_comb (skolem_function name, List.map Bound (rev all))
           val t' = map_bndvars (fn i => if i = quanti then skolem else Bound i) t
@@ -153,8 +153,8 @@ fun skolemise_th th ctxt =
 fun skolemise_ths ths = fold_map skolemise_th ths Name.context |> fst
 
 
-fun map_quant (fa, _) All (hd :: tl, ex) = (fa hd, (tl,  ex))
-  | map_quant (_, fe) Ex (all, hd :: tl) = (fe hd, (all, tl))
+fun map_quant (fa, _) (All _) (hd :: tl, ex) = (fa hd, (tl,  ex))
+  | map_quant (_, fe) (Ex _) (all, hd :: tl) = (fe hd, (all, tl))
   | map_quant _ _ _ = raise Fail "map_quant"
 
 fun fold_quants fs = fst oo fold_map (map_quant fs)
@@ -257,7 +257,7 @@ val instantiate_proof :
 
 end
 
-structure Instantiation : INSTANTIATION =
+structure Instantiation (* : INSTANTIATION *) =
 struct
 
 type conv_fun = FTerm.constant * FTerm.term list -> term
@@ -293,17 +293,29 @@ datatype quant_info =
 
 (*TODO: Perhaps we need to do more here? (Making type most general?)
         See Isar Implementation manual from 2016, p. 119 *)
-fun invent_universals ctxt v =
-  let val (vars, ctxt') = Variable.variant_fixes (map Int.toString v) ctxt
+(* This version does not work inside a proof, because variant_fixes creates Skolem terms
+   à la "x1__", which subsequently cannot be read as terms. *)
+(* 
+fun invent_universals ctxt vars =
+  let
+    val names = map (fn v => "x" ^ Int.toString v) vars
+    val (vars, ctxt') = Variable.variant_fixes names ctxt |> tap @{print warning}
   in (Syntax.read_terms ctxt' vars, ctxt')
   end
+*)
+
+(* TODO: This function could create clashing variables? *)
+fun invent_universals ctxt vars =
+  (map (fn v => "x" ^ Int.toString v) vars |> Syntax.read_terms ctxt, ctxt)
 
 fun convert_term maps t (acc as (_, tmmap)) =
   case AList.lookup (op =) tmmap t of
     SOME t' => (t', acc)
   | NONE => convert_fresh_term maps t acc
 and convert_fresh_term _ (FTerm.V v) (ctxt, tmmap) =
-    let val (t', ctxt') = invent_universals ctxt [v] |>> the_single
+    let val _ = (@{print} "cft"; @{print} v)
+       val (t', ctxt') = invent_universals ctxt [v] |>> the_single |> tap @{print warning}
+        val _ = @{print} "after cft"
     in (t', (ctxt', (FTerm.V v, t') :: tmmap))
     end
   | convert_fresh_term (maps as (symmap, skolems)) (FTerm.A (f, fa)) acc =
@@ -315,14 +327,15 @@ and convert_fresh_term _ (FTerm.V v) (ctxt, tmmap) =
     in  (list_comb (f', args'), acc')
     end
 
-fun treat_qu maps (todo as (prev, All sub :: quants, (i, th))) (acc as (tmmap, ctxt, _)) =
-     (let val (ho, (ctxt', tmmap')) = convert_term maps sub (ctxt, tmmap)
+fun treat_qu maps (todo as (prev, All ft :: quants, (i, th))) (acc as (tmmap, ctxt, _)) =
+     (let val (ho, (ctxt', tmmap')) = convert_term maps ft (ctxt, tmmap)
           val th' = inst_spec (Thm.cterm_of ctxt ho) th
-      in treat_qu maps (sub::prev, quants, (i, th')) (tmmap', ctxt', true)
+      in treat_qu maps (ft::prev, quants, (i, th')) (tmmap', ctxt', true)
       end
       handle Unsubst => (todo, acc))
   | treat_qu maps (prev, Ex sk :: quants, (i, th)) (tmmap, ctxt, _) =
-      let val ((x, th'), ctxt') = obtain_exists th ctxt
+      let val _ = @{print} "Ex"
+          val ((x, th'), ctxt') = obtain_exists th ctxt
           val skt = FTerm.A (sk, rev prev)
           val tmmap' = (skt, snd x |> Thm.term_of) :: tmmap
       in treat_qu maps (prev, quants, (i, th')) (tmmap', ctxt', true)

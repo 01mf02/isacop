@@ -84,6 +84,10 @@ ML_file "intbimap.ML"
 ML_file "isacop.ML"
 
 
+ML {*
+val x = Instantiation.invent_universals @{context} [3]
+*}
+
 section \<open>leanCoP tests\<close>
 
 ML_val {*
@@ -120,7 +124,8 @@ lemma "\<forall>x y. P(x,y) \<Longrightarrow> \<exists>a. \<forall>b. P(a, b)"
 using quip by (isacop 1)
 
 (* Syllogism of Felapton *)
-lemma felapton_ex: "\<exists>c. Centaur(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> \<not>Vote(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> Intelligent(c) \<Longrightarrow>
+lemma felapton_ex:
+ "\<exists>c. Centaur(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> \<not>Vote(c) \<Longrightarrow> \<forall>c. Centaur(c) \<longrightarrow> Intelligent(c) \<Longrightarrow>
   \<exists>b. Intelligent(b) \<and> \<not>Vote(b)"
 by (isacop)
 
