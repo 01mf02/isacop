@@ -132,6 +132,10 @@ by (isacop 5)
 lemma "\<exists>y. \<forall>x. P(x, f(x), g(x)) \<Longrightarrow> \<forall>x. \<exists>y z. P(x, y, z)"
 by isacop
 
+(* You can read off the index of the conjunct that is used from an assumption. *)
+lemma conj_clause_ex: " \<not>b \<or> \<not>hashek \<Longrightarrow> a \<and> b \<Longrightarrow> False"
+by (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
+
 
 subsection \<open>Substitution involving only universal quantifiers\<close>
 
@@ -207,12 +211,7 @@ lemma
 apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
 oops
 
-(* You can read off the index of the conjunct that is used from an assumption. *)
-lemma conj_clause_ex: " \<not>b \<or> \<not>hashek \<Longrightarrow> a \<and> b \<Longrightarrow> False"
-apply (tactic {* IsaCoP.raw_isacop 10 @{context} 1 *} )
-oops
-
-(* As above. *)
+(* Wrong order of quantifier instantiation? *)
 lemma "\<exists>x. P(x) \<and> Q(x) \<Longrightarrow> \<exists>x. Q(x) \<and> P(x)"
 apply isacop
 oops

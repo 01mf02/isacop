@@ -31,6 +31,17 @@ fun atomize_thm ctxt thm =
   in if same thm'' then thm' else Simplifier.rewrite_rule ctxt [thm''] thm'
   end
 
+fun dest_conj_rule th =
+  case Thm.prop_of th |> FOLogic.dest_Trueprop of Const (@{const_name conj}, _) $ _ $ _  =>
+    (@{thm conjunct1} OF [th]) :: dest_conj_rule (@{thm conjunct2} OF [th])
+  | _ => [th]
+
+val dest_conj_rule_test =
+  let val th = Thm.assume @{cprop "a \<and> b \<and> c"}
+      val qwe = dest_conj_rule th |> map (FOLogic.dest_Trueprop o Thm.prop_of)
+  in @{assert} (qwe = [@{term "a::o"}, @{term "b::o"}, @{term "c::o"}])
+  end
+
 fun prove_with_tac t tac = Goal.prove @{context} [] [] t (K (tac @{context} 1))
 
 
@@ -300,17 +311,17 @@ and convert_fresh_term _ (FTerm.V v) (ctxt, tmmap) =
     in  (list_comb (f', args'), acc')
     end
 
-fun treat_qu maps (todo as (prev, All sub :: quants, th)) (acc as (tmmap, ctxt, _)) =
+fun treat_qu maps (todo as (prev, All sub :: quants, (i, th))) (acc as (tmmap, ctxt, _)) =
      (let val (ho, (ctxt', tmmap')) = convert_term maps sub (ctxt, tmmap)
           val th' = inst_spec (Thm.cterm_of ctxt ho) th
-      in treat_qu maps (sub::prev, quants, th') (tmmap', ctxt', true)
+      in treat_qu maps (sub::prev, quants, (i, th')) (tmmap', ctxt', true)
       end
       handle Unsubst => (todo, acc))
-  | treat_qu maps (prev, Ex sk :: quants, th) (tmmap, ctxt, _) =
+  | treat_qu maps (prev, Ex sk :: quants, (i, th)) (tmmap, ctxt, _) =
       let val ((x, th'), ctxt') = obtain_exists th ctxt
           val skt = FTerm.A (sk, rev prev)
           val tmmap' = (skt, snd x |> Thm.term_of) :: tmmap
-      in treat_qu maps (prev, quants, th') (tmmap', ctxt', true)
+      in treat_qu maps (prev, quants, (i, th')) (tmmap', ctxt', true)
       end
   | treat_qu _ todo acc = (todo, acc)
 
@@ -345,16 +356,18 @@ fun conv_lit (sub, maps, acc) =
 
 fun boo res =
   let
-    val thform = List.map (fn ((_, th), quants) => ([], quants, th)) res
+    val thform = List.map (fn (ith, quants) => ([], quants, ith)) res
 
     (*remove duplicate theorems, but save information where they were so
       we can put them back into their place later
       otherwise, existentials may be instantiated several times!*)
-    fun thform_eq ((_, q1, th1), (_, q2, th2)) = q1 = q2 andalso Thm.concl_of th1 = Thm.concl_of th2
+    fun i_th_eq (i1, th1) (i2, th2) = i1 = i2 andalso Thm.concl_of th1 = Thm.concl_of th2
+    fun thform_eq ((_, q1, ith1), (_, q2, ith2)) = q1 = q2 andalso i_th_eq ith1 ith2
     val (is, (thuniq, _)) = elim_equals thform_eq thform
     val thuniq' = List.rev (map fst thuniq)
   in (is, thuniq')
   end
+
 
 fun convert_proof ctxt (symtab, sktab) (sub, prf) =
   let
@@ -370,8 +383,9 @@ fun convert_proof ctxt (symtab, sktab) (sub, prf) =
     val _ = @{print} "After instantiation ..."
     val final' = List.map (fn i => List.nth (final, i)) is
     val verified = verify_result final'
+    val verif' = map (fn (i, th) => nth (dest_conj_rule th) i) verified
     fun real_recon data = CProof.fold_proof (conv_lit data) (hd_tl o snd)
-    val (prf', _) = fold_map (real_recon (sub', (symtab, skolems), (ctxt', tmmap))) prf verified
+    val (prf', _) = fold_map (real_recon (sub', (symtab, skolems), (ctxt', tmmap))) prf verif'
     val _ = IProof.pretty_iproof ctxt' prf' |> Pretty.writeln
   in
     (ctxt', prf')
@@ -559,6 +573,7 @@ fun cong_consts ts =
 fun cong_axioms ctxt = (* map invent_tfrees #> *) cong_consts #> map (congr ctxt)
 
 end
+
 
 structure IsaCoP =
 struct
