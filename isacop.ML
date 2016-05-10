@@ -246,17 +246,21 @@ fun pretty_iproof ctxt = CProof.pretty_proof (Syntax.pretty_term ctxt, Thm.prett
 end
 
 
-signature COP_TO_ISA =
+signature INSTANTIATION =
 sig
 
-val convert_proof :
+type conv_fun
+
+val instantiate_proof :
   Proof.context -> Termmap.bimap * Skolemisation.skolemised list ->
-  Subst.subst * IProof.fproof -> Proof.context * IProof.iproof
+  Subst.subst * IProof.fproof -> Proof.context * conv_fun * thm list
 
 end
 
-structure CoP_to_Isa : COP_TO_ISA =
+structure Instantiation : INSTANTIATION =
 struct
+
+type conv_fun = FTerm.constant * FTerm.term list -> term
 
 fun unskolemise tab x =
   case (Termmap.forward (tab, Skolemisation.skolem_function x)) of
@@ -325,8 +329,6 @@ fun treat_qu maps (todo as (prev, All sub :: quants, (i, th))) (acc as (tmmap, c
       end
   | treat_qu _ todo acc = (todo, acc)
 
-
-
 fun transform_res symtab sub res =
   let val (_, (off, (_, _, vars, thinfo))) = res
       val (i, (thm, ({quantifiers, skolems, ...}))) = thinfo
@@ -341,10 +343,6 @@ fun instantiate_theorems tabs (ctxt, tmmap, ths) =
   in (changed, (ctxt', tmmap', ths'))
   end
 
-val verify_result =
-  List.map (fn (_, quants, th) =>
-    case quants of [] => th | _ => raise Fail "quantifiers left to instantiate")
-
 fun lit_sign (P, Pa) =
   let val (sign, P') = if P < 0 then (fn x => FOLogic.not $ x, ~P) else (I, P)
   in (FTerm.A (P', Pa), sign)
@@ -354,8 +352,12 @@ fun lit_sign (P, Pa) =
 fun conv_lit (sub, maps, acc) =
   lit_sign #>> Subst.transitive sub #>> flip (convert_term maps) acc #>> fst #> (op |>)
 
-fun boo res =
+fun instantiate_proof ctxt (symtab, sktab) (sub, prf) =
   let
+    val sub' = Subst.normalise sub
+    val skolems = List.map #skolems sktab |> List.concat
+
+    val res = map_filter CProof.destResolution prf |> map (transform_res symtab sub')
     val thform = List.map (fn (ith, quants) => ([], quants, ith)) res
 
     (*remove duplicate theorems, but save information where they were so
@@ -365,33 +367,23 @@ fun boo res =
     fun thform_eq ((_, q1, ith1), (_, q2, ith2)) = q1 = q2 andalso i_th_eq ith1 ith2
     val (is, (thuniq, _)) = elim_equals thform_eq thform
     val thuniq' = List.rev (map fst thuniq)
-  in (is, thuniq')
-  end
-
-
-fun convert_proof ctxt (symtab, sktab) (sub, prf) =
-  let
-    val sub' = Subst.normalise sub
-    val res = map_filter CProof.destResolution prf |> map (transform_res symtab sub')
-    val (is, thuniq') = boo res
-
-    val skolems = List.map #skolems sktab |> List.concat
 
     val _ = @{print} "Before instantiation ..."
-    val (ctxt', tmmap, final) =
+    val (ctxt', tmmap, instantiated) =
       do_while (instantiate_theorems (symtab, skolems)) (true, (ctxt, [], thuniq'))
     val _ = @{print} "After instantiation ..."
-    val final' = List.map (fn i => List.nth (final, i)) is
-    val verified = verify_result final'
-    val verif' = map (fn (i, th) => nth (dest_conj_rule th) i) verified
-    fun real_recon data = CProof.fold_proof (conv_lit data) (hd_tl o snd)
-    val (prf', _) = fold_map (real_recon (sub', (symtab, skolems), (ctxt', tmmap))) prf verif'
-    val _ = IProof.pretty_iproof ctxt' prf' |> Pretty.writeln
-  in
-    (ctxt', prf')
+
+    val conv_fun = conv_lit (sub', (symtab, skolems), (ctxt', tmmap))
+
+    val ordered = List.map (fn i => List.nth (instantiated, i)) is
+    val iths = List.map (fn (_, quants, th) =>
+      case quants of [] => th | _ => raise Fail "quantifiers left to instantiate") ordered
+    val ths = map (fn (i, th) => nth (dest_conj_rule th) i) iths
+  in (ctxt', conv_fun, ths)
   end
 
 end
+
 
 structure Reconstruction =
 struct
@@ -582,17 +574,27 @@ val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20);
 
 (* Unfortunately, we cannot move this to mlCoP, otherwise we have to give it a type,
    and when giving it the automatically inferred type, we get an error:
-   "Type variable is free in surrounding scope" *)
+   "Type variable is free in surrounding scope". Why? *)
 val prove_option =
   let fun todo sub _ prf = SOME (fst sub, prf)
       fun alt () = NONE
   in  mlCoP.prove_default alt todo
   end
 
-fun reconstruct ctxt tabs p =
+fun iproof_of_cproof ctxt tabs (sub, fprf) =
   let
-    val (ctxt', prf) = CoP_to_Isa.convert_proof ctxt tabs p
-    val th = Reconstruction.reconstruct ctxt' prf
+    val (ctxt', conv_fun, ths) = Instantiation.instantiate_proof ctxt tabs (sub, fprf)
+    val convert_step = CProof.fold_proof conv_fun (hd_tl o snd)
+    val (iprf, _) = fold_map convert_step fprf ths
+  in (ctxt', iprf)
+  end
+
+fun reconstruct ctxt tabs fprf =
+  let
+    val (ctxt', iprf) = iproof_of_cproof ctxt tabs fprf
+    val _ = IProof.pretty_iproof ctxt' iprf |> Pretty.writeln
+
+    val th = Reconstruction.reconstruct ctxt' iprf
     val hashek_not = @{lemma "\<not>hashek \<Longrightarrow> False" by (simp add: hashek_def)}
   in hashek_not OF (Proof_Context.export ctxt' ctxt [th])
   end
