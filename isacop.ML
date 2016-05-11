@@ -52,6 +52,8 @@ fun hd_tl (hd :: tl) = (hd, tl)
 
 fun flip f x y = f y x
 
+fun valOf' str opt = case opt of SOME s => s | _ => raise Fail str
+
 fun do_while f (continue, acc) = if continue then do_while f (f acc) else acc
 
 fun elim_equals eq l =
@@ -90,10 +92,25 @@ fun clausify_tac ctxt =
 structure Termmap = IntBimap (type key = term val ord = Term_Ord.fast_term_ord)
 
 
-structure Quantifier =
+signature QUANTIFIER =
+sig
+
+datatype ('a, 'e) quantifier = All of 'a | Ex of 'e
+type iquantifier
+
+val strip_quants : iquantifier list -> term -> iquantifier list * term
+val zip_quants : ('a, 'b) quantifier list -> ''c list * ''d list -> (''c, ''d) quantifier list
+
+end
+
+structure Quantifier : QUANTIFIER =
 struct
 
 datatype ('a, 'e) quantifier = All of 'a | Ex of 'e
+
+(* (name, type) *)
+type sty = string * typ
+type iquantifier = (sty, sty) quantifier
 
 fun quant_of @{const_name "All"} = SOME All
   | quant_of @{const_name "Ex" } = SOME Ex
@@ -108,6 +125,17 @@ fun strip_quants quants (Const (quant, _) $ Abs (x, T, t)) =
 fun map_quant (fa, _) (All a) = fa a
   | map_quant (_, fe) (Ex  e) = fe e
 
+fun zip_quants quants (all, ex) =
+  let
+    fun fa (hd::tl, ex) = (All hd, (tl, ex))
+      | fa _ = raise Fail "too few all quantifiers"
+    fun fe (all, hd :: tl) = (Ex hd, (all, tl))
+      | fe _ = raise Fail "too few exists quantifiers"
+    val (quants', rest) = fold_map (map_quant (K fa, K fe)) quants (all, ex)
+    val _ = @{assert} (rest = ([], []))
+  in quants'
+  end
+
 end
 
 
@@ -115,10 +143,8 @@ signature SKOLEMISATION =
 sig
 
 type skolemised
-type quant_type
 
 val skolem_function : string -> term
-val fold_quants : ('a -> 'c) * ('b -> 'c) -> quant_type list -> 'a list * 'b list -> 'c list
 val skolemise_ths : thm list -> skolemised list
 
 end
@@ -126,12 +152,8 @@ end
 structure Skolemisation : SKOLEMISATION =
 struct
 
-(* (name, type) *)
-type sty = string * typ
-type quant_type = (sty, sty) Quantifier.quantifier
-
 type skolemised = {
-  quantifiers : quant_type list
+  quantifiers : Quantifier.iquantifier list
 , skolems : string list
 , skolemised : term
 }
@@ -159,13 +181,6 @@ fun skolemise_th th ctxt =
   end
 
 fun skolemise_ths ths = fold_map skolemise_th ths Name.context |> fst
-
-
-fun map_quant (fa, _) (Quantifier.All _) (hd :: tl, ex) = (fa hd, (tl,  ex))
-  | map_quant (_, fe) (Quantifier.Ex _) (all, hd :: tl) = (fe hd, (all, tl))
-  | map_quant _ _ _ = raise Fail "map_quant"
-
-fun fold_quants fs = fst oo fold_map (map_quant fs)
 
 end
 
@@ -238,15 +253,11 @@ fun pretty_proof f = map (pretty_step f) #> chunks
 
 end
 
-signature IPROOF =
-sig
-
-end
-
 structure IProof =
 struct
 
-type fproof = (int * (thm * Skolemisation.skolemised)) mlCoP.proof
+type clause_no = int
+type fproof = (clause_no * (thm * Skolemisation.skolemised)) mlCoP.proof
 type iproof = (term, thm) CProof.proof
 
 fun pretty_iproof ctxt = CProof.pretty_proof (Syntax.pretty_term ctxt, Thm.pretty_thm ctxt)
@@ -271,35 +282,28 @@ struct
 type conv_fun = FTerm.constant * FTerm.term list -> term
 
 fun unskolemise tab x =
-  case (Termmap.forward (tab, Skolemisation.skolem_function x)) of
-      SOME s => s
-    | NONE => raise Fail "unskolemise"
+  Termmap.forward (tab, Skolemisation.skolem_function x) |> valOf' "unskolemise"
 
-fun conv_sym tab sym =
-  case Termmap.backward (tab, sym) of
-      SOME t => t
-    | NONE => raise Fail ("conv_sym: " ^ Int.toString sym)
+fun conv_sym tab sym = Termmap.backward (tab, sym) |> valOf' ("conv_sym: " ^ Int.toString sym)
 
 
-fun self_mapping off vars = map (fn v => (v, FTerm.V v)) (off upto off + vars - 1)
+fun self_subst off vars = map (fn v => (v, FTerm.V v)) (off upto off + vars - 1)
+
+val subst_ord = prod_ord int_ord (K EQUAL)
 
 fun get_subs off vars =
   filter (fn (v, _) => off <= v andalso v < off + vars)
   (*if substitution does not contain binding for variable, create one to itself*)
-  #> union (fn ((u, _), (v, _)) => u = v) (self_mapping off vars)
-
-val order_subs = sort (prod_ord int_ord (K EQUAL)) #> rev
+  #> union (is_equal o subst_ord) (self_subst off vars)
+  #> sort subst_ord #> rev
 
 
 exception Unsubst
-
-type quant_info = (FTerm.term, int) Quantifier.quantifier
 
 (*TODO: Perhaps we need to do more here? (Making type most general?)
         See Isar Implementation manual from 2016, p. 119 *)
 (* This version does not work inside a proof, because variant_fixes creates Skolem terms
    à la "x1__", which subsequently cannot be read as terms. *)
-
 fun invent_universals ctxt vars =
   let
     val names = map (fn v => "x" ^ Int.toString v) vars
@@ -314,21 +318,24 @@ fun invent_universals ctxt vars =
 *)
 
 fun convert_term maps t (acc as (_, tmmap)) =
-  case AList.lookup (op =) tmmap t of
-    SOME t' => (t', acc)
-  | NONE => convert_fresh_term maps t acc
+      case AList.lookup (op =) tmmap t of
+        SOME t' => (t', acc)
+      | NONE => convert_fresh_term maps t acc
 and convert_fresh_term _ (FTerm.V v) (ctxt, tmmap) =
-    let val (t', ctxt') = invent_universals ctxt [v] |>> the_single
-    in (t', (ctxt', (FTerm.V v, t') :: tmmap))
-    end
+      let val (t', ctxt') = invent_universals ctxt [v] |>> the_single
+      in (t', (ctxt', (FTerm.V v, t') :: tmmap))
+      end
   | convert_fresh_term (maps as (symmap, skolems)) (FTerm.A (f, fa)) acc =
-    let val f' = conv_sym symmap f
-        val _ = case fst (strip_comb f') of
-            Const (fh, _) => if member (op =) skolems fh then raise Unsubst else ()
-          | _ => ();
-        val (args', acc') = fold_map (convert_term maps) fa acc
-    in  (list_comb (f', args'), acc')
-    end
+      let val f' = conv_sym symmap f
+          val _ = case fst (strip_comb f') of
+              (*uh-oh, we encountered a Skolem symbol for which we have not
+                instantiated a witness yet, so we delay converting this term by
+                throwing an exception, hopefully getting the witness later*)
+              Const (fh, _) => if member (op =) skolems fh then raise Unsubst else ()
+            | _ => ();
+          val (args', acc') = fold_map (convert_term maps) fa acc
+      in  (list_comb (f', args'), acc')
+      end
 
 fun treat_qu maps (todo as (prev, Quantifier.All sub :: quants, (i, th))) (acc as (tmmap, ctxt, _)) =
      (let val (ho, (ctxt', tmmap')) = convert_term maps sub (ctxt, tmmap)
@@ -344,24 +351,15 @@ fun treat_qu maps (todo as (prev, Quantifier.All sub :: quants, (i, th))) (acc a
       end
   | treat_qu _ todo acc = (todo, acc)
 
-(* TODO! *)
-val xx =
-  let fun fa _ (hd::tl, ex) = (Quantifier.All hd, (tl, ex))
-      fun fe _ (all, hd :: tl) = (Quantifier.Ex hd, (all, tl))
-  in 1
-  end
-
-
 fun transform_res symtab sub res =
   let val (_, (off, (_, _, vars, thinfo))) = res
-      val (i, (thm, ({quantifiers, skolems, ...} : Skolemisation.skolemised))) = thinfo
+      val (i, (thm, ({quantifiers, skolems, ...}))) = thinfo
+      (*TODO: Variables seem to be wrongly calculated sometimes?*)
+      val _ = @{print} (off, vars, thm)
+      val subs = get_subs off vars sub |> map snd
       val skolems' = map (unskolemise symtab) skolems
-      val subs = get_subs off vars sub |> order_subs
-      (* TODO! *)
-      val quant_info = Skolemisation.fold_quants (Quantifier.All, Quantifier.Ex) quantifiers (map snd subs, skolems')
-  in ((i, thm), quant_info)
+  in ((i, thm), Quantifier.zip_quants quantifiers (subs, skolems'))
   end
-
 
 fun instantiate_theorems tabs (ctxt, tmmap, ths) =
   let val (ths', (tmmap', ctxt', changed)) = fold_map (treat_qu tabs) ths (tmmap, ctxt, false)
@@ -396,17 +394,14 @@ fun instantiate_proof ctxt (symtab, sktab) (sub, prf) =
     val _ = @{print} "Before instantiation ..."
     val (ctxt', tmmap, instantiated) =
       do_while (instantiate_theorems (symtab, skolems)) (true, (ctxt, [], thuniq'))
+    val inst = map (fn (_, quants, th) =>
+      case quants of [] => th | _ => raise Fail "quantifiers left to instantiate") instantiated
     val _ = @{print} "After instantiation ..."
 
     val conv_fun = conv_lit (sub', (symtab, skolems), (ctxt', tmmap))
-
-    val ordered = List.map (fn i => List.nth (instantiated, i)) is
-    val iths = List.map (fn (_, quants, th) =>
-      case quants of [] => th | _ => raise Fail "quantifiers left to instantiate") ordered
-    val ths = map (fn (i, th) => nth (dest_conj_rule th) i) iths
-  in (ctxt', conv_fun, ths)
+    fun nth_conj (i, th) = nth (dest_conj_rule th) i
+  in (ctxt', conv_fun, map (curry List.nth inst #> nth_conj) is)
   end
-
 
 end
 

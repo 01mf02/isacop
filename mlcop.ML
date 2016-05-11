@@ -6,7 +6,6 @@ Translation of leanCoP to Standard ML.
 *)
 
 
-
 signature FTERM =
 sig
 
