@@ -83,6 +83,27 @@ ML_file "mlcop.ML"
 ML_file "intbimap.ML"
 ML_file "isacop.ML"
 
+find_theorems "_ \<and> _" "_ \<Longrightarrow> _"
+
+ML {*
+val cj = Thm.assume (@{cprop "P \<and> Q"})
+val th1 = Thm.assume @{cprop P} |> Thm.implies_intr @{cprop P}
+val th3 = Thm.instantiate' [] [SOME @{cterm "P::o"}, SOME @{cterm "P::o"}] @{thm IFOL.impI}
+val th4 = Thm.implies_elim th3 th1
+val test = @{prop "P ==> P"} aconv @{prop "P ==> P"}
+val th2 = Thm.assume @{cprop Q} |> Thm.implies_intr @{cprop Q}
+val x = conj_mono_rule cj th1 th2
+val y = Thm.instantiate' [] [SOME @{cterm "P::o"}, SOME @{cterm "Q::o"}, SOME @{cterm "P::o"}] cjmr
+val z = y OF [cj, th1]
+val a = @{thm FOL.conj_mono} OF [Thm.assume @{cprop "P --> P1"}]
+*}
+
+ML {*
+val a = Thm.instantiate' [] [SOME @{cterm "P::o"}, SOME @{cterm "P::o"}] @{thm FOL.conj_mono}
+val th1 = Thm.assume @{cprop P} |> Thm.implies_intr @{cprop P}
+val elim1 = Thm.instantiate' [] [SOME @{cterm "P::o"}, SOME @{cterm "P::o"}] @{thm IFOL.impI}
+val th1' = Thm.implies_elim elim1 th1
+*}
 
 ML {*
 val x = Instantiation.invent_universals @{context} [3]

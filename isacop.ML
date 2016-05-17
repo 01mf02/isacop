@@ -92,6 +92,32 @@ fun clausify_tac ctxt =
 structure Termmap = IntBimap (type key = term val ord = Term_Ord.fast_term_ord)
 
 
+structure Tree =
+struct
+
+datatype ('b, 'l) Tree = Branch of ('b * ('b, 'l) Tree list) | Leaf of 'l
+
+type 't MonoidTree = ('t list -> 't, 't) Tree
+
+fun deep (Branch (f, nodes)) = map deep nodes |> f
+  | deep (Leaf l) = l
+
+fun fold_map_tree f (Branch (b, nodes)) y =
+      let val (nodes', y') = fold_map (fold_map_tree f) nodes y
+      in (Branch (b, nodes'), y')
+      end
+  | fold_map_tree f (Leaf l) y = f l y
+
+end
+
+val x = @{thm FOL.conj_mono}
+
+val cjmr = @{lemma "P \<and> Q \<Longrightarrow> (P \<Longrightarrow> P') \<Longrightarrow> (Q \<Longrightarrow> Q') \<Longrightarrow> P' \<and> Q'" by auto}
+
+(* conj_mono_rule "a /\ b" "a'" "b'" = "a' /\ b'" *)
+fun conj_mono_rule conj th1 th2 = cjmr OF (conj :: th1 :: th2 :: [])
+
+
 signature QUANTIFIER =
 sig
 
