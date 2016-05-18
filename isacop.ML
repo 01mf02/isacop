@@ -11,41 +11,8 @@ TODO:
 - Fix non-found lemma (in lemma_ex).
 *)
 
-fun simp_only_tac ctxt ths =
-  put_simpset FOL_basic_ss ctxt addsimps ths
-  |> TRY oo asm_full_simp_tac
 
-fun inst_spec ct th =
-  th RS (Thm.instantiate' [SOME (Thm.ctyp_of_cterm ct)] [NONE, SOME ct] @{thm spec})
-
-fun obtain_exists th =
-  Obtain.result (fn ctxt => eresolve_tac ctxt @{thms exE} 1) [th] #>>
-  (fn (x, th') => (the_single x, the_single th'))
-
-fun atomize_thm ctxt thm =
-  let
-    val thm' = forall_intr_vars thm
-    val thm'' = thm' |> Thm.cprop_of |> Object_Logic.atomize ctxt
-    val same = Thm.concl_of #> Logic.dest_equals #> op =
-  (* to prevent loop, rewrite only if atomizing changed something *)
-  in if same thm'' then thm' else Simplifier.rewrite_rule ctxt [thm''] thm'
-  end
-
-fun map_bndvars f = map_aterms (fn t => case t of Bound i => f i | _ => t)
-
-fun dest_conj_rule th =
-  case Thm.prop_of th |> FOLogic.dest_Trueprop of Const (@{const_name conj}, _) $ _ $ _  =>
-    (@{thm conjunct1} OF [th]) :: dest_conj_rule (@{thm conjunct2} OF [th])
-  | _ => [th]
-
-val dest_conj_rule_test =
-  let val th = Thm.assume @{cprop "a \<and> b \<and> c"}
-      val qwe = dest_conj_rule th |> map (FOLogic.dest_Trueprop o Thm.prop_of)
-  in @{assert} (qwe = [@{term "a::o"}, @{term "b::o"}, @{term "c::o"}])
-  end
-
-fun prove_with_tac t tac = Goal.prove @{context} [] [] t (K (tac @{context} 1))
-
+(** General helpers **)
 
 fun hd_tl (hd :: tl) = (hd, tl)
   | hd_tl _ = raise Fail "hd_tl"
@@ -69,6 +36,64 @@ fun elim_equals eq l =
 val _ = @{assert}
  (elim_equals (op =) ["a", "b", "a", "c"] =
   ([0, 1, 0, 2], ([("c", 2), ("b", 1), ("a", 0)], 3)))
+
+
+(** Isabelle-related helpers **)
+
+fun simp_only_tac ctxt ths =
+  put_simpset FOL_basic_ss ctxt addsimps ths
+  |> TRY oo asm_full_simp_tac
+
+fun inst_spec ct th =
+  th RS (Thm.instantiate' [SOME (Thm.ctyp_of_cterm ct)] [NONE, SOME ct] @{thm spec})
+
+fun obtain_exists th =
+  Obtain.result (fn ctxt => eresolve_tac ctxt @{thms exE} 1) [th] #>>
+  (fn (x, th') => (the_single x, the_single th'))
+
+fun atomize_thm ctxt thm =
+  let
+    val thm' = forall_intr_vars thm
+    val thm'' = thm' |> Thm.cprop_of |> Object_Logic.atomize ctxt
+    val same = Thm.concl_of #> Logic.dest_equals #> op =
+  (* to prevent loop, rewrite only if atomizing changed something *)
+  in if same thm'' then thm' else Simplifier.rewrite_rule ctxt [thm''] thm'
+  end
+
+fun map_bndvars f = map_aterms (fn t => case t of Bound i => f i | _ => t)
+
+
+(* Version of FOL.conj_mono with Pure implications *)
+val conj_mono = @{lemma "(P \<Longrightarrow> P') \<Longrightarrow> (Q \<Longrightarrow> Q') \<Longrightarrow> P \<and> Q \<Longrightarrow> P' \<and> Q'" by auto}
+
+fun conj_mono_rule ctxt conj th1 th2 =
+  let
+    val conjs = map (pair_list o Logic.dest_implies o Thm.prop_of) [th1, th2]
+    val insts = conjs |> List.concat |> map (SOME o Thm.cterm_of ctxt o FOLogic.dest_Trueprop)
+    val inst = Thm.instantiate' [] insts conj_mono
+  in Drule.implies_elim_list inst [th1, th2, conj]
+  end
+
+val conj_mono_rule_test =
+  let val res = conj_mono_rule @{context}
+    (Thm.assume @{cprop "a \<and> b"})
+    (Thm.assume @{cprop "a \<Longrightarrow> c"})
+    (Thm.assume @{cprop "b \<Longrightarrow> d"})
+  in @{assert} (Thm.prop_of res = @{prop "c \<and> d"})
+  end
+
+fun dest_conj_rule th =
+  case Thm.prop_of th |> FOLogic.dest_Trueprop of Const (@{const_name conj}, _) $ _ $ _  =>
+    (@{thm conjunct1} OF [th]) :: dest_conj_rule (@{thm conjunct2} OF [th])
+  | _ => [th]
+
+val dest_conj_rule_test =
+  let val th = Thm.assume @{cprop "a \<and> b \<and> c"}
+      val qwe = dest_conj_rule th |> map (FOLogic.dest_Trueprop o Thm.prop_of)
+  in @{assert} (qwe = [@{term "a::o"}, @{term "b::o"}, @{term "c::o"}])
+  end
+
+fun prove_with_tac t tac = Goal.prove @{context} [] [] t (K (tac @{context} 1))
 
 
 val hashek_and = @{lemma "P \<and> hashek \<Longrightarrow> P" by (simp add: hashek_def)}
@@ -111,54 +136,7 @@ fun fold_map_tree f (Branch (b, nodes)) y =
       end
   | fold_map_tree f (Leaf l) y = f l y
 
-
-
 end
-
-val x = @{thm FOL.conj_mono}
-
-val cjmr = @{lemma "(P \<Longrightarrow> P') \<Longrightarrow> (Q \<Longrightarrow> Q') \<Longrightarrow> P \<and> Q \<Longrightarrow> P' \<and> Q'" by auto}
-
-
-fun fol_implies_intr ctxt ct th =
-  let
-    val cprop = Thm.cprop_of th |> Object_Logic.dest_judgment ctxt
-    val ct' = ct |> Object_Logic.dest_judgment ctxt
-    val inst = Thm.instantiate' [] [SOME ct', SOME cprop] @{thm IFOL.impI}
-  in Thm.implies_intr ct th |> Thm.implies_elim inst
-  end
-
-val y = fol_implies_intr @{context} @{cprop "P"} (Thm.assume @{cprop "P"})
-
-fun dest_conj1 (Const (@{const_name "IFOL.conj"}, _) $ t1 $ t2) = (t1, t2)
-  | dest_conj1 _ = raise Fail "dest_conj1"
-
-fun conj_mono_rule ctxt conj th1 th2 =
-  let
-    val conjs = map (pair_list o Logic.dest_implies o Thm.prop_of) [th1, th2]
-    val insts = conjs |> List.concat |> map (SOME o Thm.cterm_of ctxt o FOLogic.dest_Trueprop)
-    val inst = Thm.instantiate' [] insts cjmr
-  in Drule.implies_elim_list inst [th1, th2, conj]
-  end
-
-val conj_mono_rule_test =
-  let val res = conj_mono_rule @{context}
-    (Thm.assume @{cprop "a \<and> b"})
-    (Thm.assume @{cprop "a \<Longrightarrow> c"})
-    (Thm.assume @{cprop "b \<Longrightarrow> d"})
-  in @{assert} (Thm.prop_of res = @{prop "c \<and> d"})
-  end
-
-(* conj_mono_rule "a /\ b" "a'" "b'" = "a' /\ b'" *)
-fun conj_mono_rule ctxt conj th1 th2 =
-  let
-    val cj_t = Thm.concl_of conj |> Object_Logic.drop_judgment ctxt |> dest_conj1
-      |> pair_list |> map (Thm.cterm_of ctxt o Object_Logic.ensure_propT ctxt)
-    val impls = map2 (fol_implies_intr ctxt) cj_t [th1, th2]
-    val y = Drule.implies_elim_list @{thm FOL.conj_mono} (impls @ [conj])
-  in y
-  end
-
 
 
 signature QUANTIFIER =
