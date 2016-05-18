@@ -677,7 +677,8 @@ fun isacop_method (lim, ths) ctxt facts =
   let
     val lim' = case lim of NONE => Config.get ctxt depth_limit | SOME l => l
     val eqs = Equivalence.cong_axioms ctxt (map Thm.prop_of facts)
-    val ths' = @{thm refl} :: @{thm trans} :: facts @ ths @ eqs
+    val trans' = @{lemma "x = y \<Longrightarrow> x = z \<Longrightarrow> y = z" by simp}
+    val ths' = @{thm refl} :: trans' :: facts @ ths @ eqs
     val atomized = map (atomize_thm ctxt) ths'
   in
     HEADGOAL
