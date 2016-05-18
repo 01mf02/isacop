@@ -50,6 +50,9 @@ fun prove_with_tac t tac = Goal.prove @{context} [] [] t (K (tac @{context} 1))
 fun hd_tl (hd :: tl) = (hd, tl)
   | hd_tl _ = raise Fail "hd_tl"
 
+fun pair_list (x, y) = [x, y]
+
+
 fun flip f x y = f y x
 
 fun valOf' str opt = case opt of SOME s => s | _ => raise Fail str
@@ -95,9 +98,9 @@ structure Termmap = IntBimap (type key = term val ord = Term_Ord.fast_term_ord)
 structure Tree =
 struct
 
-datatype ('b, 'l) Tree = Branch of ('b * ('b, 'l) Tree list) | Leaf of 'l
+datatype ('b, 'l) tree = Branch of ('b * ('b, 'l) tree list) | Leaf of 'l
 
-type 't MonoidTree = ('t list -> 't, 't) Tree
+type 't monoid_tree = ('t list -> 't, 't) tree
 
 fun deep (Branch (f, nodes)) = map deep nodes |> f
   | deep (Leaf l) = l
@@ -108,14 +111,54 @@ fun fold_map_tree f (Branch (b, nodes)) y =
       end
   | fold_map_tree f (Leaf l) y = f l y
 
+
+
 end
 
 val x = @{thm FOL.conj_mono}
 
-val cjmr = @{lemma "P \<and> Q \<Longrightarrow> (P \<Longrightarrow> P') \<Longrightarrow> (Q \<Longrightarrow> Q') \<Longrightarrow> P' \<and> Q'" by auto}
+val cjmr = @{lemma "(P \<Longrightarrow> P') \<Longrightarrow> (Q \<Longrightarrow> Q') \<Longrightarrow> P \<and> Q \<Longrightarrow> P' \<and> Q'" by auto}
+
+
+fun fol_implies_intr ctxt ct th =
+  let
+    val cprop = Thm.cprop_of th |> Object_Logic.dest_judgment ctxt
+    val ct' = ct |> Object_Logic.dest_judgment ctxt
+    val inst = Thm.instantiate' [] [SOME ct', SOME cprop] @{thm IFOL.impI}
+  in Thm.implies_intr ct th |> Thm.implies_elim inst
+  end
+
+val y = fol_implies_intr @{context} @{cprop "P"} (Thm.assume @{cprop "P"})
+
+fun dest_conj1 (Const (@{const_name "IFOL.conj"}, _) $ t1 $ t2) = (t1, t2)
+  | dest_conj1 _ = raise Fail "dest_conj1"
+
+fun conj_mono_rule ctxt conj th1 th2 =
+  let
+    val conjs = map (pair_list o Logic.dest_implies o Thm.prop_of) [th1, th2]
+    val insts = conjs |> List.concat |> map (SOME o Thm.cterm_of ctxt o FOLogic.dest_Trueprop)
+    val inst = Thm.instantiate' [] insts cjmr
+  in Drule.implies_elim_list inst [th1, th2, conj]
+  end
+
+val conj_mono_rule_test =
+  let val res = conj_mono_rule @{context}
+    (Thm.assume @{cprop "a \<and> b"})
+    (Thm.assume @{cprop "a \<Longrightarrow> c"})
+    (Thm.assume @{cprop "b \<Longrightarrow> d"})
+  in @{assert} (Thm.prop_of res = @{prop "c \<and> d"})
+  end
 
 (* conj_mono_rule "a /\ b" "a'" "b'" = "a' /\ b'" *)
-fun conj_mono_rule conj th1 th2 = cjmr OF (conj :: th1 :: th2 :: [])
+fun conj_mono_rule ctxt conj th1 th2 =
+  let
+    val cj_t = Thm.concl_of conj |> Object_Logic.drop_judgment ctxt |> dest_conj1
+      |> pair_list |> map (Thm.cterm_of ctxt o Object_Logic.ensure_propT ctxt)
+    val impls = map2 (fol_implies_intr ctxt) cj_t [th1, th2]
+    val y = Drule.implies_elim_list @{thm FOL.conj_mono} (impls @ [conj])
+  in y
+  end
+
 
 
 signature QUANTIFIER =
