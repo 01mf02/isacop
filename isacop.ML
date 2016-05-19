@@ -66,16 +66,21 @@ fun map_bndvars f = map_aterms (fn t => case t of Bound i => f i | _ => t)
 (* Version of FOL.conj_mono with Pure implications *)
 val conj_mono = @{lemma "(P \<Longrightarrow> P') \<Longrightarrow> (Q \<Longrightarrow> Q') \<Longrightarrow> P \<and> Q \<Longrightarrow> P' \<and> Q'" by auto}
 
-fun conj_mono_rule ctxt conj th1 th2 =
+fun remove_trivial_prem th =
   let
-    val conjs = map (pair_list o Logic.dest_implies o Thm.prop_of) [th1, th2]
-    val insts = conjs |> List.concat |> map (SOME o Thm.cterm_of ctxt o FOLogic.dest_Trueprop)
-    val inst = Thm.instantiate' [] insts conj_mono
-  in Drule.implies_elim_list inst [th1, th2, conj]
+    val prem = case Thm.prems_of th of x::_ => x | _ => raise Fail "no premises"
+    val (l, r) = Logic.dest_implies prem
+    val _ = @{assert} (l = r)
+    val ctxt = Thm.theory_of_thm th |> Defs.global_context |> fst
+    val triv = Thm.trivial (Thm.cterm_of ctxt l)
+  in Thm.implies_elim th triv
   end
 
+fun conj_mono_rule conj th1 th2 =
+  (conj_mono OF [th1, th2, conj]) |> funpow 2 remove_trivial_prem
+
 val conj_mono_rule_test =
-  let val res = conj_mono_rule @{context}
+  let val res = conj_mono_rule
     (Thm.assume @{cprop "a \<and> b"})
     (Thm.assume @{cprop "a \<Longrightarrow> c"})
     (Thm.assume @{cprop "b \<Longrightarrow> d"})
