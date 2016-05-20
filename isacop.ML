@@ -6,7 +6,6 @@ Tableau prover with proof reconstruction
 
 TODO:
 
-- Fix case when multiple conjuncts are in clause (in conj_clause_ex).
 - Implement path rule.
 - Fix non-found lemma (in lemma_ex).
 *)
@@ -62,40 +61,74 @@ fun atomize_thm ctxt thm =
 
 fun map_bndvars f = map_aterms (fn t => case t of Bound i => f i | _ => t)
 
+fun th_cterm_of th = Thm.global_cterm_of (Thm.theory_of_thm th)
 
-(* Version of FOL.conj_mono with Pure implications *)
-val conj_mono = @{lemma "(P \<Longrightarrow> P') \<Longrightarrow> (Q \<Longrightarrow> Q') \<Longrightarrow> P \<and> Q \<Longrightarrow> P' \<and> Q'" by auto}
+fun rename_distinct t i =
+  case t of
+    Abs (x, T, t1) =>
+      let val (t1', i') = rename_distinct t1 (i+1)
+      in (Abs (x ^ Int.toString i, T, t1'), i')
+      end
+  | t1 $ t2 =>
+      let val (t1', (t2', i')) = i |> rename_distinct t1 ||> rename_distinct t2
+      in (t1' $ t2', i')
+      end
+  | _ => (t, i)
+
+(*TODO: use this in preprocessing*)
+fun rename_distinct_th th i =
+  let val (t', i') = rename_distinct (Thm.prop_of th) i
+  in (Thm.rename_boundvars (Thm.prop_of th) t' th, i')
+  end
+
+val rename_distinct_th_test =
+  let val th = Thm.assume @{cprop "\<forall>x. \<forall>y. P(x)"}
+      val result = rename_distinct_th th 0 |>> Thm.prop_of
+  in @{assert} (result = (@{prop "\<forall>x0. \<forall>y1. P(x0)"}, 2))
+  end
 
 fun remove_trivial_prem th =
   let
     val prem = case Thm.prems_of th of x::_ => x | _ => raise Fail "no premises"
     val (l, r) = Logic.dest_implies prem
     val _ = @{assert} (l = r)
-    val ctxt = Thm.theory_of_thm th |> Defs.global_context |> fst
-    val triv = Thm.trivial (Thm.cterm_of ctxt l)
+    val triv = Thm.trivial (th_cterm_of th l)
   in Thm.implies_elim th triv
   end
 
-fun conj_mono_rule conj th1 th2 =
-  (conj_mono OF [th1, th2, conj]) |> funpow 2 remove_trivial_prem
+(* Versions of FOL.conj_mono & FOL.disj_mono with Pure implications *)
+val conj_mono = @{lemma "(P \<Longrightarrow> P') \<Longrightarrow> (Q \<Longrightarrow> Q') \<Longrightarrow> P \<and> Q \<Longrightarrow> P' \<and> Q'" by auto}
+val disj_mono = @{lemma "(P \<Longrightarrow> P') \<Longrightarrow> (Q \<Longrightarrow> Q') \<Longrightarrow> P \<or> Q \<Longrightarrow> P' \<or> Q'" by auto}
+
+fun conj_mono_rule conj ths = (conj_mono OF ths @ [conj]) |> funpow 2 remove_trivial_prem
+fun disj_mono_rule conj ths = (disj_mono OF ths @ [conj]) |> funpow 2 remove_trivial_prem
 
 val conj_mono_rule_test =
   let val res = conj_mono_rule
     (Thm.assume @{cprop "a \<and> b"})
-    (Thm.assume @{cprop "a \<Longrightarrow> c"})
-    (Thm.assume @{cprop "b \<Longrightarrow> d"})
+    [Thm.assume @{cprop "a \<Longrightarrow> c"},
+     Thm.assume @{cprop "b \<Longrightarrow> d"}]
   in @{assert} (Thm.prop_of res = @{prop "c \<and> d"})
   end
 
+fun make_conj_rule [] = @{thm TrueI}
+  | make_conj_rule (th :: []) = th
+  | make_conj_rule (th :: ths) = @{thm conjI} OF [th, make_conj_rule ths]
+
+val make_conj_rule_test =
+  let val ths = map Thm.assume [@{cprop P}, @{cprop Q}]
+  in @{assert} (Thm.prop_of (make_conj_rule ths) = @{prop "P \<and> Q"})
+  end
+
 fun dest_conj_rule th =
-  case Thm.prop_of th |> FOLogic.dest_Trueprop of Const (@{const_name conj}, _) $ _ $ _  =>
+  case Thm.prop_of th |> FOLogic.dest_Trueprop of @{const conj} $ _ $ _  =>
     (@{thm conjunct1} OF [th]) :: dest_conj_rule (@{thm conjunct2} OF [th])
   | _ => [th]
 
 val dest_conj_rule_test =
   let val th = Thm.assume @{cprop "a \<and> b \<and> c"}
-      val qwe = dest_conj_rule th |> map (FOLogic.dest_Trueprop o Thm.prop_of)
-  in @{assert} (qwe = [@{term "a::o"}, @{term "b::o"}, @{term "c::o"}])
+      val result = dest_conj_rule th |> map (FOLogic.dest_Trueprop o Thm.prop_of)
+  in @{assert} (result = [@{term "a::o"}, @{term "b::o"}, @{term "c::o"}])
   end
 
 fun prove_with_tac t tac = Goal.prove @{context} [] [] t (K (tac @{context} 1))
@@ -135,11 +168,58 @@ type 't monoid_tree = ('t list -> 't, 't) tree
 fun deep (Branch (f, nodes)) = map deep nodes |> f
   | deep (Leaf l) = l
 
+type ('b, 'l, 'e) edge_tree = ('b * 'e, 'l * 'e) tree
+
+(*TODO: write fold_map_edge_tree*)
+
+fun map_tree f (Leaf l) = f l
+  | map_tree f (Branch (b, nodes)) = Branch (b, map (map_tree f) nodes)
+
 fun fold_map_tree f (Branch (b, nodes)) y =
       let val (nodes', y') = fold_map (fold_map_tree f) nodes y
       in (Branch (b, nodes'), y')
       end
   | fold_map_tree f (Leaf l) y = f l y
+
+end
+
+
+structure Expansion_Tree =
+struct
+
+fun normal_leaf th = Tree.Leaf (th, NONE)
+
+(*TODO: find better name.*)
+fun xxx f tms =
+  let val ass = map Thm.assume tms
+  in Tree.Branch (map2 Thm.implies_intr tms #> f, map normal_leaf ass)
+  end
+
+(*TODO: stub*)
+fun get_univ ws inst = inst
+
+fun step sub (th, inst) (acc as (ctxt, ws)) =
+  case Thm.concl_of th of
+    @{const "IFOL.conj"} $ t1 $ t2 => (xxx (conj_mono_rule th) (map (th_cterm_of th) [t1, t2]), acc)
+  | @{const "IFOL.disj"} $ t1 $ t2 => (xxx (disj_mono_rule th) (map (th_cterm_of th) [t1, t2]), acc)
+  | Const (@{const_name "All"}, _) $ Abs (x, T, t) =>
+      (case inst of
+        NONE => (Tree.Branch (make_conj_rule, map (curry Tree.Leaf th) (sub x)), acc)
+      | SOME inst =>
+          (case get_univ ws inst of
+            NONE => (normal_leaf th, acc)
+          | SOME x' => (normal_leaf (inst_spec x' th), acc)
+          )
+      )
+  | Const (@{const_name "Ex"}, _) $ Abs (x, T, t) =>
+      let val ((witness, th'), ctxt') = obtain_exists th ctxt
+      (*Problem: at this point, we need as context the information which universal quantifiers
+        are above the current leaf, to uniquely identify the witness*)
+      in (normal_leaf th', (ctxt', (x, witness) :: ws))
+      end
+  | _ => (normal_leaf th, acc)
+
+val deep = Tree.map_tree fst #> Tree.deep
 
 end
 
