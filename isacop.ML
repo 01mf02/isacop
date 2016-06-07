@@ -183,6 +183,17 @@ fun fold_map_tree f (Branch (b, nodes)) y =
 
 end
 
+structure Edge_Tree =
+struct
+
+datatype ('b, 'e, 'l) edge_tree =
+    Branch of ('b * ('e * ('b, 'e, 'l) edge_tree) list)
+  | Leaf of 'l
+
+
+
+end
+
 
 structure Expansion_Tree =
 struct
