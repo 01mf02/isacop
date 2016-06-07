@@ -249,19 +249,47 @@ fun unify_contra (sub, off) lit contra =
 end
 
 
-structure CProof =
+signature CPROOF =
+sig
+
+datatype ('l, 'r) proof_step =
+    Lemma of 'l
+  | Path of 'l
+  | Resolution of 'l * 'r
+
+type ('l, 'r) proof
+
+val map_step : ('a -> 'b) -> ('a, 'c) proof_step -> ('b, 'c) proof_step
+val fold_proof : ('a -> 'b) ->
+      ('c * 'd -> 'e * 'd) ->
+        ('a, 'c) proof_step ->
+          'd -> ('b, 'e) proof_step * 'd
+val fold_resolution : ('r * 'b -> 's * 'b) -> ('l, 'r) proof_step -> 'b -> ('l, 's) proof_step * 'b
+val destResolution : ('a, 'b) proof_step -> ('a * 'b) option
+
+end
+
+(* Connection proof *)
+structure CProof : CPROOF =
 struct
 
+(* 'l stands for literal, and 'd for the data attached to a resolution step *)
 datatype ('l, 'r) proof_step =
     Lemma of 'l
   | Path of 'l
   | Resolution of 'l * 'r
 type ('l, 'r) proof = ('l, 'r) proof_step list
 
-fun fold_proof f _ (Lemma l) acc = (Lemma (f l), acc)
-  | fold_proof f _ (Path  l) acc = (Path  (f l), acc)
-  | fold_proof f g (Resolution (l, r)) acc =
-    let val (r', acc') = g (r, acc) in (Resolution (f l, r'), acc') end
+fun map_step f (Lemma l) = Lemma (f l)
+  | map_step f (Path  l) = Path  (f l)
+  | map_step f (Resolution (l, r)) = Resolution (f l, r)
+
+fun fold_resolution f (Resolution (l, r)) acc =
+      let val (r', acc') = f (r, acc) in (Resolution (l, r'), acc') end
+  | fold_resolution _ (Lemma l) acc = (Lemma l, acc)
+  | fold_resolution _ (Path  l) acc = (Path l, acc)
+
+fun fold_proof f g p acc = fold_resolution g (map_step f p) acc
 
 fun destResolution (Resolution r) = SOME r
   | destResolution _ = NONE
