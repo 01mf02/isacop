@@ -217,7 +217,7 @@ type subst_offset
 val eq : subst_offset -> LTerm.lit -> LTerm.lit -> bool
 val unify : subst_offset -> LTerm.lit -> LTerm.lit -> subst_offset option
 val unify_contra : subst_offset -> LTerm.lit -> 'a Matrix.contrapositive ->
-  (subst_offset * LTerm.clause) option
+  (subst_offset * LTerm.lit) option
 
 end
 
