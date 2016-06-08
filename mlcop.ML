@@ -36,7 +36,7 @@ sig
 
 type ('c, 'v) term
 
-val A : ('c * ('c, 'v) term list) -> ('c, 'v) term
+val C : ('c * ('c, 'v) term list) -> ('c, 'v) term
 val V : 'v -> ('c, 'v) term
 
 val destApp : ('c, 'v) term -> ('c * ('c, 'v) term list)
@@ -50,7 +50,7 @@ struct
 
 type ('c, 'v) term = ('c, 'v) Tree.tree
 
-val A = Tree.Branch
+val C = Tree.Branch
 val V = Tree.Leaf
 
 fun destApp (Tree.Branch (f, args)) = (f, args)
@@ -313,7 +313,7 @@ val fold_proof : ('a -> 'b) ->
 val fold_resolution : ('r * 'b -> 's * 'b) -> ('l, 'r) proof_step -> 'b -> ('l, 's) proof_step * 'b
 val destResolution : ('a, 'b) proof_step -> ('a * 'b) option
 
-val proof_variables : (LTerm.lit, 'a) proof_step list -> LTerm.variable list
+val proof_variables : (FTerm.lit, 'a) proof_step list -> FTerm.variable list
 
 end
 
@@ -348,7 +348,7 @@ fun destResolution (Resolution r) = SOME r
 
 (* We cannot do eta-conversion here, otherwise we get an ML error:
    "Type variable is free in surrounding scope" *)
-fun proof_variables p = List.concat (map (LTerm.litVars o literal) p)
+fun proof_variables p = List.concat (map (FTerm.litVars o literal) p)
 
 end
 
@@ -366,7 +366,7 @@ type history
 type 'a alternative
 type ('a, 'b) promise
 
-val prove : 'b Matrix.matrix -> Unif.subst_offset -> history -> 'a alternative -> ('a, 'b) promise -> 'b proof -> LTerm.clause -> 'a
+val prove : 'b Matrix.matrix -> Unif.subst_offset -> history -> 'a alternative -> ('a, 'b) promise -> 'b proof -> FTerm.clause -> 'a
 val prove_default : 'a alternative -> ('a, 'b) promise -> 'b Matrix.matrix -> int -> 'a
 
 end
@@ -378,12 +378,12 @@ val cut1 = true
 val cut2 = true
 val cut3 = true
 
-type path   = LTerm.lit list
-type lemmas = LTerm.lit list
+type path   = FTerm.lit list
+type lemmas = FTerm.lit list
 type history = path * lemmas * int
 
 
-type 'a proof_step = (LTerm.lit, Unif.offset * 'a Matrix.contrapositive) CProof.proof_step
+type 'a proof_step = (FTerm.lit, Unif.offset * 'a Matrix.contrapositive) CProof.proof_step
 type 'a proof = 'a proof_step list
 
 (* continuation types *)
@@ -411,7 +411,7 @@ fun prove mat sub (hist as (path, lem, _)) alt todo prf cla =
            reduce mat sub lit rest hist alt todo prf path
      end)
 and reduce mat sub lit rest hist alt todo prf path =
-    let val neglit = LTerm.negateLit lit
+    let val neglit = FTerm.negateLit lit
     in
     writeln ("reduce with lit = " ^ PolyML.makestring lit ^ " and path = " ^ PolyML.makestring path);
     case findSome (Unif.unify sub neglit) path of

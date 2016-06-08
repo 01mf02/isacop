@@ -366,7 +366,7 @@ fun conv_term (Bound b) tab = (FTerm.V b, tab)
   in (FTerm.A (P', args'), tab'')
   end
 
-fun conv_prop (@{const "Not"} $ t) tab = conv_prop t tab |>> LTerm.negateLit
+fun conv_prop (@{const "Not"} $ t) tab = conv_prop t tab |>> FTerm.negateLit
   | conv_prop t tab = conv_term t tab |>> FTerm.destApp
 
 val conv_clause = fold_map conv_prop
@@ -384,16 +384,15 @@ structure FTerm =
 struct
 
 open FTerm
-open Tree
 
-fun pretty_term (Leaf v) = Pretty.str ("v" ^ Int.toString v)
-  | pretty_term (Branch (f, [])) = Pretty.str (Int.toString f)
-  | pretty_term (Branch (f, args)) = Pretty.block
+fun pretty_term (FTerm.V v) = Pretty.str ("v" ^ Int.toString v)
+  | pretty_term (FTerm.A (f, [])) = Pretty.str (Int.toString f)
+  | pretty_term (FTerm.A (f, args)) = Pretty.block
       [ Pretty.str (Int.toString f)
       , Pretty.enclose "(" ")" (Pretty.commas (map pretty_term args))
       ]
 
-fun pretty_lit (P, args) = pretty_term (Branch (P, args))
+fun pretty_lit (P, args) = pretty_term (FTerm.A (P, args))
 val pretty_clause = Pretty.separate " \<or>" o map pretty_lit
 val pretty_clauses = Pretty.block o Pretty.separate " \<and>" o
   map (Pretty.enclose "(" ")" o pretty_clause)
@@ -440,7 +439,7 @@ end
 structure Instantiation : INSTANTIATION =
 struct
 
-type conv_fun = LTerm.constant * LTerm.term list -> term
+type conv_fun = FTerm.constant * FTerm.term list -> term
 
 fun unskolemise tab x =
   Termmap.forward (tab, Skolemisation.skolem_function x) |> valOf' "unskolemise"
@@ -482,12 +481,11 @@ fun convert_term maps t (acc as (_, tmmap)) =
       case AList.lookup (op =) tmmap t of
         SOME t' => (t', acc)
       | NONE => convert_fresh_term maps t acc
-and convert_fresh_term (maps as (symmap, skolems)) tm (acc as (ctxt, tmmap)) = (case tm of
-    (Tree.Leaf v) =>
+and convert_fresh_term _ (FTerm.V v) (ctxt, tmmap) =
       let val (t', ctxt') = invent_universals ctxt [v] |>> the_single
       in (t', (ctxt', (FTerm.V v, t') :: tmmap))
       end
-  | (Tree.Branch (f, fa)) =>
+  | convert_fresh_term (maps as (symmap, skolems)) (FTerm.A (f, fa)) acc =
       let val f' = conv_sym symmap f
           val _ = case fst (strip_comb f') of
               (*uh-oh, we encountered a Skolem symbol for which we have not
@@ -497,7 +495,7 @@ and convert_fresh_term (maps as (symmap, skolems)) tm (acc as (ctxt, tmmap)) = (
             | _ => ();
           val (args', acc') = fold_map (convert_term maps) fa acc
       in  (list_comb (f', args'), acc')
-      end)
+      end
 
 fun treat_qu maps (todo as (prev, Quantifier.All sub :: quants, (i, th))) (acc as (tmmap, ctxt, _)) =
      (let val (ho, (ctxt', tmmap')) = convert_term maps sub (ctxt, tmmap)
