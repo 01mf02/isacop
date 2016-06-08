@@ -5,95 +5,52 @@
 Translation of leanCoP to Standard ML.
 *)
 
-structure Tree =
-struct
-
-datatype ('b, 'l) tree = Branch of ('b * ('b, 'l) tree list) | Leaf of 'l
-
-type 't monoid_tree = ('t list -> 't, 't) tree
-
-fun deep (Branch (f, nodes)) = map deep nodes |> f
-  | deep (Leaf l) = l
-
-fun map_tree f (Leaf l) = f l
-  | map_tree f (Branch (b, nodes)) = Branch (b, map (map_tree f) nodes)
-
-fun leafs (Leaf l) = [l]
-  | leafs (Branch (b, nodes)) = List.concat (map leafs nodes)
-
-fun fold_map_tree f (Branch (b, nodes)) y =
-      let val (nodes', y') = fold_map (fold_map_tree f) nodes y
-      in (Branch (b, nodes'), y')
-      end
-  | fold_map_tree f (Leaf l) y = f l y
-
-end
-
-
 
 signature FTERM =
 sig
 
-type ('c, 'v) term
+type variable
+type constant
+datatype term = V of variable | A of constant * term list
+type lit
+type clause
+type clauses
 
-val C : ('c * ('c, 'v) term list) -> ('c, 'v) term
-val V : 'v -> ('c, 'v) term
-
-val destApp : ('c, 'v) term -> ('c * ('c, 'v) term list)
-val mapVars : ('v -> ('c, 'v) term) -> ('c, 'v) term -> ('c, 'v) term
-val termVars : ('c, 'v) term -> 'v list
+val destApp : term -> (int * term list)
+val negateLit : lit -> lit
+val mapVars : (variable -> term) -> term -> term
+val termVars : term -> variable list
+val litVars : lit -> variable list
+val clauseVars : clause -> variable list
 
 end
 
 structure FTerm : FTERM =
 struct
 
-type ('c, 'v) term = ('c, 'v) Tree.tree
-
-val C = Tree.Branch
-val V = Tree.Leaf
-
-fun destApp (Tree.Branch (f, args)) = (f, args)
-  | destApp _ = raise Fail "destApp"
-
-val termVars = Tree.leafs
-
-fun mapVars f tm = Tree.map_tree f tm
-
-end
-
-signature LTERM =
-sig
-
-type variable
-type constant
-type lit
-type clause
-type clauses
-
-val negateLit : lit -> lit
-val litVars : lit -> variable list
-val clauseVars : clause -> variable list
-
-end
-
-
-structure LTerm =
-struct
-
 type variable = int
 type constant = int
 type predicate = int
-type term = (constant, variable) FTerm.term
+
+datatype term = V of variable | A of constant * term list
 type lit = predicate * term list
 type clause = lit list
 type clauses = clause list
 
+fun destApp (A (f, args)) = (f, args)
+  | destApp _ = raise Fail "destApp"
+
 fun negateLit (i, l) = (~i, l)
 
-fun litVars (_, ts) = List.concat (List.map FTerm.termVars ts)
+fun mapVars f (V x) = f x
+  | mapVars f (A (g, args)) = A(g, map (mapVars f) args)
 
-fun clauseVars cl = List.concat (List.map litVars cl)
+fun termVars (V x) = [x]
+  | termVars (A (_, args)) = List.concat (List.map termVars args)
+
+fun litVars (_, ts) = List.concat (List.map termVars ts)
+
+val clauseVars = List.concat o List.map litVars
 
 end
 
@@ -103,8 +60,8 @@ sig
 
 type 'a contrapositive
 type 'a matrix
-val entries : 'a matrix -> LTerm.lit -> 'a contrapositive list
-val insert_clauses : 'a matrix -> (LTerm.clause * 'a) list -> unit
+val entries : 'a matrix -> FTerm.lit -> 'a contrapositive list
+val insert_clauses : 'a matrix -> (FTerm.clause * 'a) list -> unit
 val empty : int -> 'a matrix
 
 end
@@ -113,7 +70,7 @@ structure Matrix : MATRIX =
 struct
 
 (* (lit-arguments, rest-clause, vars, data) *)
-type 'a contrapositive = (LTerm.term list * LTerm.clause * int * 'a)
+type 'a contrapositive = (FTerm.term list * FTerm.clause * int * 'a)
 
 (* for every predicate, store list of possible contrapositives *)
 type 'a matrix = 'a contrapositive list Array.array
@@ -122,7 +79,7 @@ type 'a matrix = 'a contrapositive list Array.array
 fun nat_of_int i = if i >= 0 then 2*i else ~(2*i + 1)
 
 
-fun clauseMaxVar cl = 1 + List.foldl Int.max (~1) (LTerm.clauseVars cl)
+fun clauseMaxVar cl = 1 + List.foldl Int.max (~1) (FTerm.clauseVars cl)
 
 (*Run function for every element and all other elements of the list.
   For example: app_rest [] f [1, 2, 3] =
@@ -189,7 +146,7 @@ include MORPHISM
 
 type subst
 
-val transitive : subst -> LTerm.term -> LTerm.term
+val transitive : subst -> FTerm.term -> FTerm.term
 val normalise : subst -> subst
 
 end
@@ -199,7 +156,7 @@ struct
 
 open ListMorphism
 
-type subst = (LTerm.variable, LTerm.term) morphism
+type subst = (FTerm.variable, FTerm.term) morphism
 
 fun transitive sub =
   FTerm.mapVars (fn v => ListMorphism.map (FTerm.V v) (transitive sub) sub v)
@@ -214,37 +171,36 @@ sig
 
 type offset
 type subst_offset
-val eq : subst_offset -> LTerm.lit -> LTerm.lit -> bool
-val unify : subst_offset -> LTerm.lit -> LTerm.lit -> subst_offset option
-val unify_contra : subst_offset -> LTerm.lit -> 'a Matrix.contrapositive ->
-  (subst_offset * LTerm.lit) option
+val eq : subst_offset -> FTerm.lit -> FTerm.lit -> bool
+val unify : subst_offset -> FTerm.lit -> FTerm.lit -> subst_offset option
+val unify_contra : subst_offset -> FTerm.lit -> 'a Matrix.contrapositive ->
+  (subst_offset * FTerm.clause) option
 
 end
 
 structure Unif : UNIF =
 struct
 
-open Tree
+open FTerm
 
 type offset = int
 type subst_offset = Subst.subst * offset
 
 exception Unify
 
-
-fun isTriv sub x (Leaf y) = x = y orelse Subst.map false (fn t => isTriv sub x t) sub y
-  | isTriv sub x (Branch (_, a)) = if List.exists (isTriv sub x) a then raise Unify else false
+fun isTriv sub x (V y) = x = y orelse Subst.map false (fn t => isTriv sub x t) sub y
+  | isTriv sub x (A (_, a)) = if List.exists (isTriv sub x) a then raise Unify else false
 
 fun addSubst sub x t = if isTriv sub x t then sub else Subst.add sub x t
 
-fun unifyTerm (Tree.Branch(f, fa), Tree.Branch(g, ga), sub) = if f <> g then raise Unify else unifyTerms sub (fa, ga)
-  | unifyTerm (Leaf x, tm, sub) = Subst.map (addSubst sub x tm) (fn t => unifyTerm (tm, t, sub)) sub x
-  | unifyTerm (tm, Leaf x, sub) = unifyTerm (Leaf x, tm, sub)
+fun unifyTerm (A(f, fa), A(g, ga), sub) = if f <> g then raise Unify else unifyTerms sub (fa, ga)
+  | unifyTerm (V(x), tm, sub) = Subst.map (addSubst sub x tm) (fn t => unifyTerm (tm, t, sub)) sub x
+  | unifyTerm (tm, V(x), sub) = unifyTerm (V(x), tm, sub)
 and unifyTerms sub = ListPair.foldlEq unifyTerm sub
 
 fun unifyLit sub (h1, l1) (h2, l2) = if h1 <> h2 then raise Unify else unifyTerms sub (l1, l2)
 
-fun offsetTermVars off = FTerm.mapVars (fn v => FTerm.V (v + off))
+fun offsetTermVars off = mapVars (fn v => V (v + off))
 fun offsetLitVars off (p, l) = (p, List.map (offsetTermVars off) l)
 
 (*Unify with renaming of the second argument.*)
@@ -270,13 +226,13 @@ fun unify_contrapos sub off (_, args1) (args2, rest, vars, _) =
       end
 
 (*True if variable is equivalent to another variable under substitution.*)
-fun eqVar sub x (Leaf y) = x = y orelse Subst.map false (eqVar sub x) sub y
-  | eqVar _   _ (Branch _) = false
+fun eqVar sub x (V y) = x = y orelse Subst.map false (eqVar sub x) sub y
+  | eqVar _   _ (A _) = false
 
 fun eqTerm sub (t1, t2) = case (t1, t2) of
-    (Branch(f, fa), Branch(g, ga)) => f = g andalso eqTermList sub (fa, ga)
-  | (Leaf x, t2) => Subst.map (eqVar sub x t2) (fn t => eqTerm sub (t, t2)) sub x
-  | (t1, Leaf _) => eqTerm sub (t2, t1)
+    (A(f, fa), A(g, ga)) => f = g andalso eqTermList sub (fa, ga)
+  | (V x, t2) => Subst.map (eqVar sub x t2) (fn t => eqTerm sub (t, t2)) sub x
+  | (t1, V _) => eqTerm sub (t2, t1)
 and eqTermList sub = ListPair.allEq (eqTerm sub)
 
 fun eqLit sub (p, pa) (q, qa) = p = q andalso eqTermList sub (pa, qa)

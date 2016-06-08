@@ -1,12 +1,3 @@
-8.6.2016
-========
-
-$\sigma$ is a confluent TRS, so equality modulo $\sigma$ is decidable
-
-Construct *one* deep formula for all copies of a clause, then
-extract relevant parts for each clause copy
-
-
 30.5.2016
 =========
 

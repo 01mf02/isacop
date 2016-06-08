@@ -183,6 +183,56 @@ fun fold_map_tree f (Branch (b, nodes)) y =
 
 end
 
+structure Edge_Tree =
+struct
+
+datatype ('b, 'e, 'l) edge_tree =
+    Branch of ('b * ('e * ('b, 'e, 'l) edge_tree) list)
+  | Leaf of 'l
+
+
+
+end
+
+
+structure Expansion_Tree =
+struct
+
+fun normal_leaf th = Tree.Leaf (th, NONE)
+
+(*TODO: find better name.*)
+fun xxx f tms =
+  let val ass = map Thm.assume tms
+  in Tree.Branch (map2 Thm.implies_intr tms #> f, map normal_leaf ass)
+  end
+
+(*TODO: stub*)
+fun get_univ ws inst = inst
+
+fun step sub (th, inst) (acc as (ctxt, ws)) =
+  case Thm.concl_of th of
+    @{const "IFOL.conj"} $ t1 $ t2 => (xxx (conj_mono_rule th) (map (th_cterm_of th) [t1, t2]), acc)
+  | @{const "IFOL.disj"} $ t1 $ t2 => (xxx (disj_mono_rule th) (map (th_cterm_of th) [t1, t2]), acc)
+  | Const (@{const_name "All"}, _) $ Abs (x, T, t) =>
+      (case inst of
+        NONE => (Tree.Branch (make_conj_rule, map (curry Tree.Leaf th) (sub x)), acc)
+      | SOME inst =>
+          (case get_univ ws inst of
+            NONE => (normal_leaf th, acc)
+          | SOME x' => (normal_leaf (inst_spec x' th), acc)
+          )
+      )
+  | Const (@{const_name "Ex"}, _) $ Abs (x, T, t) =>
+      let val ((witness, th'), ctxt') = obtain_exists th ctxt
+      (*Problem: at this point, we need as context the information which universal quantifiers
+        are above the current leaf, to uniquely identify the witness*)
+      in (normal_leaf th', (ctxt', (x, witness) :: ws))
+      end
+  | _ => (normal_leaf th, acc)
+
+val deep = Tree.map_tree fst #> Tree.deep
+
+end
 
 
 signature QUANTIFIER =
@@ -232,73 +282,6 @@ fun zip_quants quants (all, ex) =
 end
 
 
-datatype binop = And | Or
-datatype ('a, 'e) treeop = Bin of binop | Quant of ('a, 'e) Quantifier.quantifier
-
-fun syntax_tree_of_tm tm = case tm of
-    @{const "IFOL.conj"} $ t1 $ t2 => Tree.Branch (Bin And, map syntax_tree_of_tm [t1, t2])
-  | @{const "IFOL.disj"} $ t1 $ t2 => Tree.Branch (Bin Or , map syntax_tree_of_tm [t1, t2])
-  | Const (@{const_name "All"}, _) $ Abs (_, _, t) =>
-      Tree.Branch (Quant (Quantifier.All ()), [syntax_tree_of_tm t])
-  | Const (@{const_name "Ex"}, _) $ Abs (_, _, t) =>
-      Tree.Branch (Quant (Quantifier.Ex  ()), [syntax_tree_of_tm t])
-  | t => Tree.Leaf t 
-
-
-structure Edge_Tree =
-struct
-
-datatype ('b, 'e, 'l) edge_tree =
-    Branch of ('b * ('e * ('b, 'e, 'l) edge_tree) list)
-  | Leaf of 'l
-
-
-
-end
-
-
-
-
-structure Expansion_Tree =
-struct
-
-fun normal_leaf th = Tree.Leaf (th, NONE)
-
-(*TODO: find better name.*)
-fun xxx f tms =
-  let val ass = map Thm.assume tms
-  in Tree.Branch (map2 Thm.implies_intr tms #> f, map normal_leaf ass)
-  end
-
-(*TODO: stub*)
-fun get_univ ws inst = inst
-
-fun step sub (th, inst) (acc as (ctxt, ws)) =
-  case Thm.concl_of th of
-    @{const "IFOL.conj"} $ t1 $ t2 => (xxx (conj_mono_rule th) (map (th_cterm_of th) [t1, t2]), acc)
-  | @{const "IFOL.disj"} $ t1 $ t2 => (xxx (disj_mono_rule th) (map (th_cterm_of th) [t1, t2]), acc)
-  | Const (@{const_name "All"}, _) $ Abs (x, T, t) =>
-      (case inst of
-        NONE => (Tree.Branch (make_conj_rule, map (curry Tree.Leaf th) (sub x)), acc)
-      | SOME inst =>
-          (case get_univ ws inst of
-            NONE => (normal_leaf th, acc)
-          | SOME x' => (normal_leaf (inst_spec x' th), acc)
-          )
-      )
-  | Const (@{const_name "Ex"}, _) $ Abs (x, T, t) =>
-      let val ((witness, th'), ctxt') = obtain_exists th ctxt
-      (*Problem: at this point, we need as context the information which universal quantifiers
-        are above the current leaf, to uniquely identify the witness*)
-      in (normal_leaf th', (ctxt', (x, witness) :: ws))
-      end
-  | _ => (normal_leaf th, acc)
-
-val deep = Tree.map_tree fst #> Tree.deep
-
-end
-
-
 signature SKOLEMISATION =
 sig
 
@@ -312,8 +295,8 @@ end
 structure Skolemisation : SKOLEMISATION =
 struct
 
-type skolemised =
-{ quantifiers : Quantifier.iquantifier list
+type skolemised = {
+  quantifiers : Quantifier.iquantifier list
 , skolems : string list
 , skolemised : term
 }
