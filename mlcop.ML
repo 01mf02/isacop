@@ -260,12 +260,16 @@ datatype ('l, 'r) proof_step =
 type ('l, 'r) proof
 
 val map_step : ('a -> 'b) -> ('a, 'c) proof_step -> ('b, 'c) proof_step
+val literal : ('l, 'r) proof_step -> 'l
+
 val fold_proof : ('a -> 'b) ->
       ('c * 'd -> 'e * 'd) ->
         ('a, 'c) proof_step ->
           'd -> ('b, 'e) proof_step * 'd
 val fold_resolution : ('r * 'b -> 's * 'b) -> ('l, 'r) proof_step -> 'b -> ('l, 's) proof_step * 'b
 val destResolution : ('a, 'b) proof_step -> ('a * 'b) option
+
+val proof_variables : (FTerm.lit, 'a) proof_step list -> FTerm.variable list
 
 end
 
@@ -284,6 +288,10 @@ fun map_step f (Lemma l) = Lemma (f l)
   | map_step f (Path  l) = Path  (f l)
   | map_step f (Resolution (l, r)) = Resolution (f l, r)
 
+fun literal (Lemma l) = l
+  | literal (Path l) = l
+  | literal (Resolution (l, _)) = l
+
 fun fold_resolution f (Resolution (l, r)) acc =
       let val (r', acc') = f (r, acc) in (Resolution (l, r'), acc') end
   | fold_resolution _ (Lemma l) acc = (Lemma l, acc)
@@ -293,6 +301,10 @@ fun fold_proof f g p acc = fold_resolution g (map_step f p) acc
 
 fun destResolution (Resolution r) = SOME r
   | destResolution _ = NONE
+
+(* We cannot do eta-conversion here, otherwise we get an ML error:
+   "Type variable is free in surrounding scope" *)
+fun proof_variables p = List.concat (map (FTerm.litVars o literal) p)
 
 end
 
