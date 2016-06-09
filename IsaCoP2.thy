@@ -69,6 +69,8 @@ lemmas prenex_all = conj_all all_conj disj_all all_disj
 
 section \<open>Prover and tactic\<close>
 
+declare [[ML_print_depth = 20]]
+
 ML_file "utils.ML"
 ML_file "tree.ML"
 ML_file "mlcop2.ML"
