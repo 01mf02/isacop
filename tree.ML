@@ -9,6 +9,9 @@ fun map_tree f (Leaf l) = f l
 fun leafs (Leaf l) = [l]
   | leafs (Branch (_, nodes)) = List.concat (map leafs nodes)
 
+fun branches (Leaf l) = []
+  | branches (Branch (b, nodes)) = b :: List.concat (map branches nodes)
+
 fun fold_map_tree f (Branch (b, nodes)) y =
       let val (nodes', y') = fold_map (fold_map_tree f) nodes y
       in (Branch (b, nodes'), y')

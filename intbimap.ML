@@ -1,4 +1,4 @@
-signature INTBIMAP =
+signature BIMAP =
 sig
 
 type left
@@ -6,13 +6,15 @@ type right
 type bimap
 
 val    empty : int -> bimap
+val fromList : left list -> bimap
+
 val   insert : (bimap * left) -> (bimap * right)
 val  forward : (bimap * left) -> right option
 val backward : (bimap * right) -> left option
 
 end
 
-functor IntBimap (Key : KEY) : INTBIMAP =
+functor IntBimap (Key : KEY) : BIMAP =
 struct
 
 structure Tab = Table (Key)
@@ -38,5 +40,7 @@ local
 in
   fun insert (bm, x) = case forward (bm, x) of SOME i => (bm, i) | NONE => insertNew (bm, x)
 end
+
+fun fromList l = List.foldl (swap #> insert #> fst) (empty (length l)) l
 
 end
