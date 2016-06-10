@@ -20,17 +20,11 @@ fun syntax_tree quants t = case t of
       Tree.Branch (Bin Or, map (syntax_tree quants) [t1, t2])
   | t => Tree.Leaf (quants, t)
 
-(* TODO: convert free variables to constants before the next step *)
+val free_to_const = map_aterms (fn t => case t of Free x => Const x | _ => t)
 
-fun tree_consts tree =
-  let val leafs = Tree.leafs tree |> map snd
-      val frees = fold Term.add_tfree_names leafs []
-      val consts = fold Term.add_const_names leafs []
-  in frees @ consts
-  end
+fun transform_leaf leaf = leaf |>> map Free ||> free_to_const |> subst_bounds |> Tree.Leaf
 
-val subst_bound_with_free =
-  Tree.map_tree (fn (quants, t) => Tree.Leaf (subst_bounds (map Free quants, t)))
+fun tree_consts tree = fold Term.add_const_names (Tree.leafs tree)
 
 structure SymIntBimap = IntBimap (type key = string val ord = fast_string_ord)
 

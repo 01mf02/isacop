@@ -3,8 +3,8 @@ struct
 
 datatype ('b, 'l) tree = Branch of ('b * ('b, 'l) tree list) | Leaf of 'l
 
-fun map_tree f (Leaf l) = f l
-  | map_tree f (Branch (b, nodes)) = Branch (b, map (map_tree f) nodes)
+fun map_leafs f (Leaf l) = f l
+  | map_leafs f (Branch (b, nodes)) = Branch (b, map (map_leafs f) nodes)
 
 fun leafs (Leaf l) = [l]
   | leafs (Branch (_, nodes)) = List.concat (map leafs nodes)
@@ -14,12 +14,6 @@ fun branches (Leaf _) = []
 
 fun path_tree path (Leaf l) = Leaf (path, l)
   | path_tree path (Branch (b, nodes)) = Branch ((path, b), map (path_tree (b :: path)) nodes)
-
-fun fold_map_tree f (Branch (b, nodes)) y =
-      let val (nodes', y') = fold_map (fold_map_tree f) nodes y
-      in (Branch (b, nodes'), y')
-      end
-  | fold_map_tree f (Leaf l) y = f l y
 
 end
 

@@ -15,7 +15,7 @@ val V : 'v -> ('c, 'v) term
 
 val destApp : ('c, 'v) term -> ('c * ('c, 'v) term list)
 val mapVars : ('v -> ('c, 'v) term) -> ('c, 'v) term -> ('c, 'v) term
-val termVars : ('c, 'v) term -> 'v list
+val vars : ('c, 'v) term -> 'v list
 
 end
 
@@ -30,7 +30,7 @@ val V = Tree.Leaf
 fun destApp (Tree.Branch (f, args)) = (f, args)
   | destApp _ = raise Fail "destApp"
 
-val termVars = Tree.leafs
+val vars = Tree.leafs
 
 val mapVars = Tree.map_tree
 
@@ -68,7 +68,7 @@ fun negateLit (i, l) = (~i, l)
 fun offsetTermVars off = FTerm.mapVars (fn v => FTerm.V (v + off))
 fun offsetLitVars off (p, l) = (p, List.map (offsetTermVars off) l)
 
-fun litVars (_, ts) = List.concat (List.map FTerm.termVars ts)
+fun litVars (_, ts) = List.concat (List.map FTerm.vars ts)
 
 fun clauseVars cl = List.concat (List.map litVars cl)
 
