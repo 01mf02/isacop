@@ -240,6 +240,7 @@ signature UNIF =
 sig
 
 type offset
+type subst
 type subst_offset
 val eq : subst_offset -> LTerm.lit -> LTerm.lit -> bool
 val unify : subst_offset -> LTerm.lit -> LTerm.lit -> subst_offset option
@@ -253,6 +254,7 @@ struct
 open Tree
 
 type offset = int
+type subst = (LTerm.constant, LTerm.variable) Subst.subst
 type subst_offset = (LTerm.constant, LTerm.variable) Subst.subst * offset
 
 (*Unify with renaming of the second argument.*)
@@ -351,8 +353,9 @@ type history
 type 'a alternative
 type ('a, 'b) promise
 
-val prove : 'b Matrix.matrix -> Unif.subst_offset -> history -> 'a alternative -> ('a, 'b) promise -> 'b proof -> LTerm.clause -> 'a
-val prove_default : 'a alternative -> ('a, 'b) promise -> 'b Matrix.matrix -> int -> 'a
+val prove : 'b Matrix.matrix -> (Unif.subst * Unif.offset) -> history ->
+  'a alternative -> ('a, 'b) promise -> 'b proof -> LTerm.clause -> 'a
+val maybe_prove : 'a Matrix.matrix -> int -> (Unif.subst * 'a proof) option
 
 end
 
@@ -430,11 +433,13 @@ and extend mat sub lit rest (hist as (path, lem, lim)) alt todo prf entries =
 
 val hashek = 1
 
-fun prove_default alt todo mat lim =
+fun maybe_prove mat lim =
   let val sub = (Subst.empty, 0)
       val hist = ([], [], lim)
       val prf = []
       val cla = [(hashek, [])]
+      fun alt () = NONE
+      fun todo sub _ prf = SOME (fst sub, prf)
   in prove mat sub hist alt todo prf cla
   end
 

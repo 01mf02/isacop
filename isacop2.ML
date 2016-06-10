@@ -75,3 +75,23 @@ fun matrix_of_term t =
       val matrix = lt |> strip_quants |> to_matrix |> to_lmatrix bimaps
   in (matrix, (maps, lt))
   end
+
+structure IsaCop =
+struct
+
+val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20);
+
+fun raw_isacop lim ctxt = undefined ()
+
+fun isacop_method (lim, ths) ctxt facts =
+  let val lim' = Option.getOpt (lim, Config.get ctxt depth_limit)
+  in HEADGOAL (raw_isacop lim' ctxt)
+  end
+
+val _ =
+  Theory.setup
+    (Method.setup @{binding isacop}
+      (Scan.lift (Scan.option Parse.nat) -- Attrib.thms >> (METHOD oo isacop_method))
+      "lean connection calculus prover")
+
+end
