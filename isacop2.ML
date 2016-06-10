@@ -49,7 +49,7 @@ fun tree_consts tree = fold Term.add_const_names (Tree.leafs tree |> map snd)
 
 val var_bimap = SymIntBimap.fromList
 
-fun const_bimap skolems consts = SymIntBimap.fromList (map fst skolems @ consts)
+fun const_bimap skolems consts = SymIntBimap.fromList ("hashek" :: map fst skolems @ consts)
 
 fun to_lterm (bimaps as (cm, vm)) t = case strip_comb t of
     (Free (x, _), []) => FTerm.V (sym_int vm x)

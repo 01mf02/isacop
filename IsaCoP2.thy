@@ -77,6 +77,5 @@ ML_file "mlcop2.ML"
 ML_file "intbimap.ML"
 ML_file "isacop2.ML"
 
-(* TODO: fix error *)
-lemma "\<forall>x. P(x) \<and> \<not>P(x) \<Longrightarrow> False"
+lemma "\<forall>x. (\<not>hashek \<or> P(x)) \<and> (\<not>hashek \<or> \<not>P(x)) \<Longrightarrow> False"
 apply (isacop)
