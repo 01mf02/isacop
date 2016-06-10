@@ -50,13 +50,12 @@ val var_bimap = SymIntBimap.fromList
 
 fun const_bimap skolems consts = SymIntBimap.fromList (map fst skolems @ consts)
 
+fun to_lterm (bimaps as (cm, vm)) t = case strip_comb t of
+    (Free (x, _), []) => FTerm.V (SymIntBimap.forward (vm, x))
+  | (Const (x, _), args) => FTerm.A (SymIntBimap.forward (cm, x), map (to_lterm bimaps) args)
+  | _ => raise Fail "lterm_of_term"
 
 (*
- * Convert term to FOF:
- * Application \<rightarrow> Look up in constant bimap and transform arguments.
- * Constant \<rightarrow> Look up in constant bimap
- * Free variable \<rightarrow> Look up in variable bimap
-
  * Tree to Matrix:
  * Convert leaf terms to FOF via bimaps
  * Throw away quantifiers

@@ -31,7 +31,6 @@ fun destApp (Tree.Branch (f, args)) = (f, args)
   | destApp _ = raise Fail "destApp"
 
 val vars = Tree.leafs
-
 val mapVars = Tree.map_leafs
 
 end
