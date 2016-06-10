@@ -29,8 +29,6 @@ val free_to_const = map_aterms (fn t => case t of Free x => Const x | _ => t)
 
 fun transform_leaf leaf = leaf |>> map Free ||> free_to_const |> subst_bounds |> Tree.Leaf
 
-fun tree_consts tree = fold Term.add_const_names (Tree.leafs tree)
-
 structure SymIntBimap = IntBimap (type key = string val ord = fast_string_ord)
 
 val tree_path_quants =
@@ -46,16 +44,15 @@ fun literal_of_term (@{const "IFOL.Not"} $ t) = (false, t)
 
 val literal_tree = Tree.map_leafs (literal_of_term #> Tree.Leaf)
 
+fun tree_consts tree = fold Term.add_const_names (Tree.leafs tree |> map snd)
+
+val var_bimap = SymIntBimap.fromList
+
+fun const_bimap skolems consts = SymIntBimap.fromList (map fst skolems @ consts)
 
 
 (*
- * Bimap creation:
- * Concatenate Skolem functions with existing tree constants to create SymIntBimap for constants
-   (omit negation!)
- * Create SymIntBimap for variables
-
  * Convert term to FOF:
- * First, handle negation
  * Application \<rightarrow> Look up in constant bimap and transform arguments.
  * Constant \<rightarrow> Look up in constant bimap
  * Free variable \<rightarrow> Look up in variable bimap

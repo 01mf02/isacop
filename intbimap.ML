@@ -12,6 +12,8 @@ val   insert : (bimap * left) -> (bimap * right)
 val  forward : (bimap * left) -> right option
 val backward : (bimap * right) -> left option
 
+val domain : bimap -> left list
+
 end
 
 functor IntBimap (Key : KEY) : BIMAP =
@@ -42,5 +44,7 @@ in
 end
 
 fun fromList l = List.foldl (swap #> insert #> fst) (empty (length l)) l
+
+fun domain {forth, ...} = Tab.keys forth
 
 end
