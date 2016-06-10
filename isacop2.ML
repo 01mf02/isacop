@@ -9,6 +9,11 @@ datatype binop = And | Or
 datatype ('a, 'e) quantifier = All of 'a | Ex of 'e
 datatype ('a, 'e) treeop = Bin of binop | Quant of ('a, 'e) quantifier
 
+fun get_All (All a) = SOME a | get_All _ = NONE
+fun get_Ex  (Ex  e) = SOME e | get_Ex  _ = NONE
+
+fun get_Quant (Bin _) = NONE | get_Quant (Quant q) = SOME q
+
 fun syntax_tree quants t = case t of
     Const (@{const_name "IFOL.All"}, _) $ Abs (x, T, t') =>
       Tree.Branch (Quant (All x), [syntax_tree ((x, T) :: quants) t'])
@@ -28,11 +33,15 @@ fun tree_consts tree = fold Term.add_const_names (Tree.leafs tree)
 
 structure SymIntBimap = IntBimap (type key = string val ord = fast_string_ord)
 
-(* Skolemisation:
- * path_tree |> branches |> mapPartial destQuant
- * mapPartial destAll |> save to variables
- * mapPartial destEx |> save to Skolem functions + arguments
+val tree_path_quants =
+  Tree.path_tree [] #> Tree.branches #> List.mapPartial (Utils.option_map_snd get_Quant)
 
+fun skolem (above, x) = (x, List.mapPartial (Option.composePartial (get_All, get_Quant)) above)
+
+val variables = List.mapPartial (snd #> get_All)
+val skolems = List.mapPartial (Utils.option_map_snd get_Ex #> Option.map skolem)
+
+(*
  * Bimap creation:
  * Concatenate Skolem functions with existing tree constants to create SymIntBimap for constants
    (omit negation!)

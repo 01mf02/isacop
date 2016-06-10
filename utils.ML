@@ -22,4 +22,6 @@ fun maybe n s x = case x of
     NONE => n
   | SOME x' => s x'
 
+fun option_map_snd f (x, y) = Option.map (pair x) (f y)
+
 end

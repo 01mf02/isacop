@@ -32,7 +32,7 @@ fun destApp (Tree.Branch (f, args)) = (f, args)
 
 val vars = Tree.leafs
 
-val mapVars = Tree.map_tree
+val mapVars = Tree.map_leafs
 
 end
 
