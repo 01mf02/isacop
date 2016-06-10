@@ -41,6 +41,13 @@ fun skolem (above, x) = (x, List.mapPartial (Option.composePartial (get_All, get
 val variables = List.mapPartial (snd #> get_All)
 val skolems = List.mapPartial (Utils.option_map_snd get_Ex #> Option.map skolem)
 
+fun literal_of_term (@{const "IFOL.Not"} $ t) = (false, t)
+  | literal_of_term t = (true, t)
+
+val literal_tree = Tree.map_leafs (literal_of_term #> Tree.Leaf)
+
+
+
 (*
  * Bimap creation:
  * Concatenate Skolem functions with existing tree constants to create SymIntBimap for constants
