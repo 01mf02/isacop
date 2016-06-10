@@ -75,7 +75,8 @@ ML_file "utils.ML"
 ML_file "tree.ML"
 ML_file "mlcop2.ML"
 ML_file "intbimap.ML"
+ML_file "isautils.ML"
 ML_file "isacop2.ML"
 
-lemma "\<forall>x. (\<not>hashek \<or> P(x)) \<and> (\<not>hashek \<or> \<not>P(x)) \<Longrightarrow> False"
+lemma "\<forall>x. (\<not>hashek \<or> P(x)) \<Longrightarrow> \<exists>x. (\<not>hashek \<or> \<not>P(x)) \<Longrightarrow> False"
 apply (isacop)

@@ -87,7 +87,8 @@ val matrix_of_clauses = map (rpair ()) #> Matrix.from_list
 fun raw_isacop lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, concl: cterm, ...} =>
   let
     val _ = @{assert} ((Thm.term_of concl) aconv @{prop False})
-    val (matrix, (bimaps, tree)) = clauses_of_thm (hd prems) |>> matrix_of_clauses
+    val prem = IsaUtils.make_conj_rule prems
+    val (matrix, (bimaps, tree)) = clauses_of_thm prem |>> matrix_of_clauses
     val tac = case mlCoP.maybe_prove matrix lim of
         SOME p => (@{print} "Success."; K no_tac)
       | NONE => (@{print} "No connection proof found."; K no_tac)
