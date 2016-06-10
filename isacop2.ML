@@ -60,11 +60,11 @@ fun strip_quants (Tree.Branch (Quant _, [t])) = strip_quants t
   | strip_quants (Tree.Branch (b, nodes)) = Tree.Branch (b, map strip_quants nodes)
   | strip_quants t = t
 
-val to_matrix = Tree.debinarize (Bin And) #> map (Tree.debinarize (Bin Or) #> map Tree.leaf_of)
+val to_preclauses = Tree.debinarize (Bin And) #> map (Tree.debinarize (Bin Or) #> map Tree.leaf_of)
 
-fun to_lmatrix bimaps = (map o map) (apsnd (to_lterm bimaps) #> LTerm.toLit)
+fun to_clauses bimaps = (map o map) (apsnd (to_lterm bimaps) #> LTerm.toLit)
 
-fun matrix_of_term t =
+fun clauses_of_term t =
   let val st = t |> syntax_tree [] |> Tree.map_leafs transform_leaf
       val quants = tree_path_quants st
       val vars = variables quants
@@ -72,8 +72,8 @@ fun matrix_of_term t =
       val lt = literal_tree st
       val consts = tree_consts lt []
       val bimaps = (const_bimap sklm consts, var_bimap vars)
-      val matrix = lt |> strip_quants |> to_matrix |> to_lmatrix bimaps
-  in (matrix, (maps, lt))
+      val clauses = lt |> strip_quants |> to_preclauses |> to_clauses bimaps
+  in (clauses, (bimaps, lt))
   end
 
 structure IsaCop =
@@ -81,7 +81,18 @@ struct
 
 val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20);
 
-fun raw_isacop lim ctxt = undefined ()
+val clauses_of_thm = Thm.concl_of #> FOLogic.dest_Trueprop #> clauses_of_term
+val matrix_of_clauses = map (rpair ()) #> Matrix.from_list
+
+fun raw_isacop lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, concl: cterm, ...} =>
+  let
+    val _ = @{assert} ((Thm.term_of concl) aconv @{prop False})
+    val (matrix, (bimaps, tree)) = clauses_of_thm (hd prems) |>> matrix_of_clauses
+    val tac = case mlCoP.maybe_prove matrix lim of
+        SOME p => (@{print} "Success."; K no_tac)
+      | NONE => (@{print} "No connection proof found."; K no_tac)
+  in HEADGOAL tac
+  end)
 
 fun isacop_method (lim, ths) ctxt facts =
   let val lim' = Option.getOpt (lim, Config.get ctxt depth_limit)

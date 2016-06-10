@@ -87,6 +87,7 @@ type 'a matrix
 val entries : 'a matrix -> LTerm.lit -> 'a contrapositive list
 val insert_clauses : 'a matrix -> (LTerm.clause * 'a) list -> unit
 val empty : int -> 'a matrix
+val from_list : (LTerm.clause * 'a) list -> 'a matrix
 
 end
 
@@ -119,6 +120,12 @@ end
 fun entries mat (p, _) = Array.sub (mat, Utils.nat_of_int p)
 
 fun empty size = Array.array (size, [])
+
+fun from_list cls =
+  (* TODO: calculate exact number of clauses *)
+  let val mat = empty 10000
+  in insert_clauses mat cls; mat
+  end
 
 end
 
