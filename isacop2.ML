@@ -53,11 +53,16 @@ fun const_bimap skolems consts = SymIntBimap.fromList (map fst skolems @ consts)
 fun to_lterm (bimaps as (cm, vm)) t = case strip_comb t of
     (Free (x, _), []) => FTerm.V (SymIntBimap.forward (vm, x))
   | (Const (x, _), args) => FTerm.A (SymIntBimap.forward (cm, x), map (to_lterm bimaps) args)
-  | _ => raise Fail "lterm_of_term"
+  | _ => raise Fail "to_lterm"
+
+fun to_matrix tree = Tree.map_leafs (LTerm.toLit #> Tree.Leaf) tree
+
+fun strip_quants (Tree.Branch (Quant _, [t])) = strip_quants t
+  | strip_quants (Tree.Branch (b, nodes)) = Tree.Branch (b, map strip_quants nodes)
+  | strip_quants t = t
 
 (*
  * Tree to Matrix:
  * Convert leaf terms to FOF via bimaps
- * Throw away quantifiers
  * Merge successive \<and> and \<or>.
  *)

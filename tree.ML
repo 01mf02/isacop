@@ -15,6 +15,10 @@ fun branches (Leaf _) = []
 fun path_tree path (Leaf l) = Leaf (path, l)
   | path_tree path (Branch (b, nodes)) = Branch ((path, b), map (path_tree (b :: path)) nodes)
 
+fun debinarize b br = case br of
+    (Branch (b', [n1, n2])) => if b = b' then n1 :: debinarize b n2 else [br]
+  | _ => [br]
+
 end
 
 structure Monoid_Tree =

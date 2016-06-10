@@ -41,9 +41,11 @@ sig
 
 type variable
 type lit
+type term
 type clause
 type clauses
 
+val toLit : bool * term -> lit
 val negateLit : lit -> lit
 val litVars : lit -> variable list
 val clauseVars : clause -> variable list
@@ -61,6 +63,9 @@ type term = (constant, variable) FTerm.term
 type lit = predicate * term list
 type clause = lit list
 type clauses = clause list
+
+fun toLit (pol, Tree.Branch (P, args)) = if pol then (P, args) else (~P, args)
+  | toLit _ = raise Fail "toLit"
 
 fun negateLit (i, l) = (~i, l)
 
