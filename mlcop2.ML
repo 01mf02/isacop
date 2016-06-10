@@ -121,13 +121,9 @@ fun entries mat (p, _) = Array.sub (mat, Utils.nat_of_int p)
 
 fun empty size = Array.array (size, [])
 
-fun maximum [] = raise Fail "maximum"
-  | maximum [x] = x
-  | maximum (x::xs) = let val m = maximum xs in if x > m then x else m end
-
 fun from_list cls =
   let val preds = List.concat (map (map fst o fst) cls)
-      val max_pred = preds |> map Utils.nat_of_int |> maximum
+      val max_pred = preds |> map Utils.nat_of_int |> Utils.maximum
       val mat = empty (max_pred + 1)
   in insert_clauses mat cls; mat
   end
