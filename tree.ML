@@ -9,6 +9,9 @@ fun map_leafs f (Leaf l) = f l
 fun leafs (Leaf l) = [l]
   | leafs (Branch (_, nodes)) = List.concat (map leafs nodes)
 
+fun leaf_of (Leaf l) = l
+  | leaf_of _ = raise Fail "leaf_of"
+
 fun branches (Leaf _) = []
   | branches (Branch (b, nodes)) = b :: List.concat (map branches nodes)
 

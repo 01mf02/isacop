@@ -30,6 +30,7 @@ val free_to_const = map_aterms (fn t => case t of Free x => Const x | _ => t)
 fun transform_leaf leaf = leaf |>> map Free ||> free_to_const |> subst_bounds |> Tree.Leaf
 
 structure SymIntBimap = IntBimap (type key = string val ord = fast_string_ord)
+fun sym_int m x = SymIntBimap.forward (m, x) |> Option.valOf
 
 val tree_path_quants =
   Tree.path_tree [] #> Tree.branches #> List.mapPartial (Utils.option_map_snd get_Quant)
@@ -51,18 +52,26 @@ val var_bimap = SymIntBimap.fromList
 fun const_bimap skolems consts = SymIntBimap.fromList (map fst skolems @ consts)
 
 fun to_lterm (bimaps as (cm, vm)) t = case strip_comb t of
-    (Free (x, _), []) => FTerm.V (SymIntBimap.forward (vm, x))
-  | (Const (x, _), args) => FTerm.A (SymIntBimap.forward (cm, x), map (to_lterm bimaps) args)
+    (Free (x, _), []) => FTerm.V (sym_int vm x)
+  | (Const (x, _), args) => FTerm.A (sym_int cm x, map (to_lterm bimaps) args)
   | _ => raise Fail "to_lterm"
-
-fun to_matrix tree = Tree.map_leafs (LTerm.toLit #> Tree.Leaf) tree
 
 fun strip_quants (Tree.Branch (Quant _, [t])) = strip_quants t
   | strip_quants (Tree.Branch (b, nodes)) = Tree.Branch (b, map strip_quants nodes)
   | strip_quants t = t
 
-(*
- * Tree to Matrix:
- * Convert leaf terms to FOF via bimaps
- * Merge successive \<and> and \<or>.
- *)
+val to_matrix = Tree.debinarize (Bin And) #> map (Tree.debinarize (Bin Or) #> map Tree.leaf_of)
+
+fun to_lmatrix bimaps = (map o map) (apsnd (to_lterm bimaps) #> LTerm.toLit)
+
+fun matrix_of_term t =
+  let val st = t |> syntax_tree [] |> Tree.map_leafs transform_leaf
+      val quants = tree_path_quants st
+      val vars = variables quants
+      val sklm = skolems quants
+      val lt = literal_tree st
+      val consts = tree_consts lt []
+      val bimaps = (const_bimap sklm consts, var_bimap vars)
+      val matrix = lt |> strip_quants |> to_matrix |> to_lmatrix bimaps
+  in (matrix, (maps, lt))
+  end
