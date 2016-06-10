@@ -82,7 +82,7 @@ struct
 val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20);
 
 val clauses_of_thm = Thm.concl_of #> FOLogic.dest_Trueprop #> clauses_of_term
-val matrix_of_clauses = map (rpair ()) #> Matrix.from_list
+val matrix_of_clauses = map_index swap #> Matrix.from_list
 
 fun raw_isacop lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, concl: cterm, ...} =>
   let

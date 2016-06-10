@@ -24,4 +24,6 @@ fun maybe n s x = case x of
 
 fun option_map_snd f (x, y) = Option.map (pair x) (f y)
 
+val maximum = List.foldr Int.max 0
+
 end
