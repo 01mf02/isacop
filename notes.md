@@ -1,6 +1,25 @@
 13.6.2016
 =========
 
+A counterexample for Skolem functions with congruence axioms
+------------------------------------------------------------
+
+$\forall x. \exists y. P x y \land \lnot  Px y \land x = c$
+
+Skolemised: $\forall x. P x (f x) \land \lnot P x (f x) \land x = c$
+
+* $P a (f a)$
+* $\lnot P a (f a)$
+* $a = c$
+
+* $P b (f b)$
+* $\lnot P b (f b)$
+* $b = c$
+
+$P a (f a)$ is resolved with $\lnot P b (f b)$ by rewriting $a$ with $b$.
+That only works, however, if congruence axioms for Skolem functions
+are produced.
+
 A counterexample for inner Skolemisation
 ----------------------------------------
 
