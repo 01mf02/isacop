@@ -1,3 +1,29 @@
+13.6.2016
+=========
+
+A counterexample for inner Skolemisation
+----------------------------------------
+
+1. $\lnot P(a, c)$
+2. $\forall w. P(w, c)$
+3. $\forall x y. P(x, y) \land \exists z. \lnot P(z, y)$
+
+Inner-Skolemize $F_3$, yielding: $P(x, y) \land \lnot P(f(y), y)$
+
+Instantiate $F_3$ two times:
+
+1. $P(a, c) \land \lnot P(f(c), c)$
+2. $P(f(c), c) \land \lnot P(f(c), c)$
+
+We can resolve these two and get: $P(a, c) \land \lnot P(f(c), c)$.
+Resolving this with original $F_1$ and $F_2$ gives $\bot$.
+
+However, the first resolve step did only work because the $f(c)$ witnesses
+were the same in the inner Skolemisation; in the natural deduction scenario,
+these would actually be different witnesses!
+So one has to do something about them if one uses inner Skolemisation.
+
+
 8.6.2016
 ========
 
