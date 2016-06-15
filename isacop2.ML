@@ -49,7 +49,10 @@ fun tree_consts tree = fold Term.add_const_names (Tree.leafs tree |> map snd)
 
 val var_bimap = SymIntBimap.fromList
 
-fun const_bimap skolems consts = SymIntBimap.fromList ("hashek" :: map fst skolems @ consts)
+(* Make sure that hashek is assigned the integer "1", because it is defined
+   that way in mlCoP. *)
+fun const_bimap skolems consts =
+  SymIntBimap.fromList (@{const_name "hashek"} :: map fst skolems @ consts)
 
 fun to_lterm (bimaps as (cm, vm)) t = case strip_comb t of
     (Free (x, _), []) => FTerm.V (sym_int vm x)
@@ -86,7 +89,7 @@ fun clauses_of_term t =
   in (clauses, (bimaps, lt))
   end
 
-structure IsaCop =
+structure IsaCoP =
 struct
 
 val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20);
@@ -94,20 +97,29 @@ val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20);
 val clauses_of_thm = Thm.concl_of #> FOLogic.dest_Trueprop #> clauses_of_term
 val matrix_of_clauses = map_index swap #> Matrix.from_list
 
-fun raw_isacop lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, concl: cterm, ...} =>
+fun reconstruct_tac _ = (@{print} "Success."; K no_tac)
+
+fun raw_isacop_tac lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, concl: cterm, ...} =>
   let
     val _ = @{assert} ((Thm.term_of concl) aconv @{prop False})
     val prem = IsaUtils.make_conj_rule prems
     val (matrix, (bimaps, tree)) = clauses_of_thm prem |>> matrix_of_clauses
-    val tac = case mlCoP.maybe_prove matrix lim of
-        SOME p => (@{print} "Success."; K no_tac)
-      | NONE => (@{print} "No connection proof found."; K no_tac)
+    val tac = Utils.maybe (K no_tac) reconstruct_tac (mlCoP.maybe_prove matrix lim)
   in HEADGOAL tac
   end)
 
+val hashek_and = @{lemma "P \<and> hashek \<Longrightarrow> P" by (simp add: hashek_def)}
+
+fun pre_isacop_tac ctxt =
+  resolve_tac ctxt [hashek_and] THEN'
+  K (print_tac ctxt "Initial proof state") THEN'
+  IsaUtils.neg_goal_tac ctxt THEN'
+  IsaUtils.pnf_cnf_tac ctxt THEN'
+  K (print_tac ctxt "After clausification")
+
 fun isacop_method (lim, ths) ctxt facts =
   let val lim' = Option.getOpt (lim, Config.get ctxt depth_limit)
-  in HEADGOAL (raw_isacop lim' ctxt)
+  in HEADGOAL (pre_isacop_tac ctxt THEN' raw_isacop_tac lim' ctxt)
   end
 
 val _ =

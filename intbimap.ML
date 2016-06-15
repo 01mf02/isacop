@@ -43,7 +43,7 @@ in
   fun insert (bm, x) = case forward (bm, x) of SOME i => (bm, i) | NONE => insertNew (bm, x)
 end
 
-fun fromList l = List.foldr (swap #> insert #> fst) (empty (length l + 1)) l
+fun fromList l = List.foldl (swap #> insert #> fst) (empty (length l + 1)) l
 
 fun domain {forth, ...} = Tab.keys forth
 
