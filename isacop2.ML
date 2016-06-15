@@ -37,7 +37,7 @@ val tree_path_quants =
 
 fun skolem (above, x) = (x, List.mapPartial (Option.composePartial (get_All, get_Quant)) above)
 
-val variables = List.mapPartial (snd #> get_All)
+val allquantified_variables = List.mapPartial (snd #> get_All)
 val skolems = List.mapPartial (Utils.option_map_snd get_Ex #> Option.map skolem)
 
 fun literal_of_term (@{const "IFOL.Not"} $ t) = (false, t)
@@ -64,12 +64,22 @@ val to_preclauses = Tree.debinarize (Bin And) #> map (Tree.debinarize (Bin Or) #
 
 fun to_clauses bimaps = (map o map) (apsnd (to_lterm bimaps) #> LTerm.toLit)
 
+fun mk_skolem_term (f, args) =
+  list_comb (Const (f, dummyT), map (fn arg => Free (arg, dummyT)) args)
+
+(* Replace existential free variables by appropriate Skolem terms *)
+fun subst_skolems sklm t = case t of
+    (Free (x, _)) => Utils.maybe t mk_skolem_term (List.find (fn (x', _) => x = x') sklm)
+  | _ => t
+
+fun skolemise_terms sklm = Tree.map_leafs (map_aterms (subst_skolems sklm) #> Tree.Leaf)
+
 fun clauses_of_term t =
   let val st = t |> syntax_tree [] |> Tree.map_leafs transform_leaf
       val quants = tree_path_quants st
-      val vars = variables quants
+      val vars = allquantified_variables quants
       val sklm = skolems quants
-      val lt = literal_tree st
+      val lt = st |> skolemise_terms sklm |> literal_tree
       val consts = tree_consts lt []
       val bimaps = (const_bimap sklm consts, var_bimap vars)
       val clauses = lt |> strip_quants |> to_preclauses |> to_clauses bimaps

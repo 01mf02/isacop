@@ -78,5 +78,13 @@ ML_file "intbimap.ML"
 ML_file "isautils.ML"
 ML_file "isacop2.ML"
 
+declare [[ML_exception_trace = true]]
+
+(* Watch out: Hashek has to go first, otherwise the bimap creation fails! *)
+
+(* Miller's example: Drinker's Paradox *)
+lemma "\<forall>x. \<exists>y. (\<not>hashek \<or> P(x)) \<and> (\<not>hashek \<or> \<not>P(y)) \<Longrightarrow> False"
+apply isacop
+
 lemma "\<forall>x. (\<not>hashek \<or> P(x)) \<Longrightarrow> \<exists>x. (\<not>hashek \<or> \<not>P(x)) \<Longrightarrow> False"
 apply (isacop)
