@@ -40,6 +40,16 @@ lemma "(\<exists>x. \<not>P(x)) \<or> (\<forall>x. P(x))"
 apply isacop
 sorry
 
+(* Example from reviewer 3 -- gets unfortunately simplified too much before *)
+lemma "\<forall>x y. P(x,y) \<Longrightarrow> \<not>(\<forall>z. \<exists>w. \<not>P(z,w))"
+apply isacop
+sorry
+
+(* Example from reviewer 3 again, but this time without simplification *)
+lemma "(\<forall>x y. P(x,y) \<or> \<not>hashek) \<Longrightarrow> \<forall>z. \<exists>w. \<not>P(z,w) \<Longrightarrow> False"
+apply (tactic {* IsaCoP.raw_isacop_tac 10 @{context} 1 *})
+sorry
+
 (* Chad's problem: A lemma that blast cannot solve, but Metis can instantly. *)
 lemma "
       \<forall>x y. \<exists>z. Q(x, y, z)
