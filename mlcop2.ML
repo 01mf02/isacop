@@ -363,8 +363,9 @@ type ('a, 'b) promise
 
 type options
 
-val prove : options -> 'b Matrix.matrix -> (Unif.subst * Unif.offset) -> history ->
-  'a alternative -> ('a, 'b) promise -> 'b proof -> LTerm.clause -> 'a
+val prove : options -> 'b Matrix.matrix ->
+  ((Unif.subst * Unif.offset) * history * 'a alternative * ('a, 'b) promise * 'b proof) ->
+  LTerm.clause -> 'a
 val maybe_prove : 'a Matrix.matrix -> int -> (Unif.subst * 'a proof) option
 
 end
@@ -398,35 +399,35 @@ type ('a, 'b) state =
 , proof : 'b proof
 }
 
-fun cons_proof step {substitution = s, history = h, alternative = a, promise = m, proof = o} =
-  {substitution = s, history = h, alternative = a, promise = m, proof = step :: o}
+fun cons_proof step {substitution = s, history = h, alternative = a, promise = m, proof = f} =
+  {substitution = s, history = h, alternative = a, promise = m, proof = step :: f}
 
-fun set_substitution s {substitution = _, history = h, alternative = a, promise = m, proof = o} =
-  {substitution = s, history = h, alternative = a, promise = m, proof = o}
+fun set_substitution s {substitution = _, history = h, alternative = a, promise = m, proof = f} =
+  {substitution = s, history = h, alternative = a, promise = m, proof = f}
 
-fun set_history h {substitution = s, history = _, alternative = a, promise = m, proof = o} =
-  {substitution = s, history = h, alternative = a, promise = m, proof = o}
+fun set_history h {substitution = s, history = _, alternative = a, promise = m, proof = f} =
+  {substitution = s, history = h, alternative = a, promise = m, proof = f}
 
-fun set_alternative a {substitution = s, history = h, alternative = _, promise = m, proof = o} =
-  {substitution = s, history = h, alternative = a, promise = m, proof = o}
+fun set_alternative a {substitution = s, history = h, alternative = _, promise = m, proof = f} =
+  {substitution = s, history = h, alternative = a, promise = m, proof = f}
 
-fun prove opts mat sub (hist as (path, lem, _)) alt todo prf cla =
+fun prove opts mat (state as (sub, hist as (path, lem, _), alt, todo, prf)) cla =
   (writeln ("prove with cla = " ^ PolyML.makestring cla);
   case cla of
     [] => todo sub alt prf
   | (cl as lit :: rest) =>
-     let val cont = (fn () => reduce opts mat sub hist alt todo prf lit rest path)
+     let val cont = (fn () => reduce opts mat state lit rest path)
          val nalt = if #cut_prove opts then alt else cont
          (* regularity check: all clause literals should not be on path *)
      in  if List.exists (fn x => List.exists (Unif.eq sub x) path) cl
            then alt ()
          (* if literal is among the lemmas, remove it and treat rest clause *)
          else if List.exists (Unif.eq sub lit) lem
-           then prove opts mat sub hist nalt todo (CProof.Lemma lit :: prf) rest
+           then prove opts mat (sub, hist, nalt, todo, CProof.Lemma lit :: prf) rest
          else
-           reduce opts mat sub hist alt todo prf lit rest path
+           reduce opts mat state lit rest path
      end)
-and reduce opts mat sub hist alt todo prf lit rest path =
+and reduce opts mat (state as (sub, hist, alt, todo, prf)) lit rest path =
     let val neglit = LTerm.negateLit lit
     in
     writeln ("reduce with lit = " ^ PolyML.makestring lit ^ " and path = " ^ PolyML.makestring path);
@@ -434,13 +435,13 @@ and reduce opts mat sub hist alt todo prf lit rest path =
       (* negated literal is on the path *)
       SOME (_, nsub, pt) =>
         let (* possibly try to reduce with other literal on path later *)
-            fun cont () = reduce opts mat sub hist alt todo prf lit rest pt
+            fun cont () = reduce opts mat state lit rest pt
             val nalt = if #cut_reduce opts then alt else cont
-        in prove opts mat nsub hist nalt todo (CProof.Path lit :: prf) rest
+        in prove opts mat (nsub, hist, nalt, todo, CProof.Path lit :: prf) rest
         end
-    | NONE => extend opts mat sub hist alt todo prf lit rest (Matrix.entries mat neglit)
+    | NONE => extend opts mat state lit rest (Matrix.entries mat neglit)
     end
-and extend opts mat sub (hist as (path, lem, path_len)) alt todo prf lit rest entries =
+and extend opts mat (state as (sub, (path, lem, path_len), alt, todo, prf)) lit rest entries =
     let fun extensible (entry as (_, _, vars, _)) =
             if path_len >= #max_path_len opts andalso vars > 0 then NONE
             else Unif.unify_contra sub lit entry
@@ -452,9 +453,9 @@ and extend opts mat sub (hist as (path, lem, path_len)) alt todo prf lit rest en
           let val hist1 = (lit :: path, lem, path_len + 1)
               val hist2 = (path, lit :: lem, path_len)
               val prf1  = CProof.Resolution (lit, (snd sub, entry)) :: prf
-              fun todo1 sub alt2 prf = prove opts mat sub hist2 (if #cut_extend opts then alt else alt2) todo prf rest
-              fun alt1 () = extend opts mat sub hist alt todo prf lit rest et
-          in  prove opts mat nsub hist1 alt1 todo1 prf1 cla1
+              fun todo1 sub alt2 prf = prove opts mat (sub, hist2, if #cut_extend opts then alt else alt2, todo, prf) rest
+              fun alt1 () = extend opts mat state lit rest et
+          in  prove opts mat (nsub, hist1, alt1, todo1, prf1) cla1
           end
     | NONE => alt ()
     end
@@ -469,7 +470,7 @@ fun maybe_prove mat lim =
       val cla = [(hashek, [])]
       fun alt () = NONE
       fun todo sub _ prf = SOME (fst sub, prf)
-  in prove opts mat sub hist alt todo prf cla
+  in prove opts mat (sub, hist, alt, todo, prf) cla
   end
 
 end
