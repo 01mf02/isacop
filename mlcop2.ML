@@ -413,11 +413,11 @@ fun prove opts mat (state as (sub, hist as (path, lem, _), alt, todo, prf)) cla 
 and reduce opts mat (state as (sub, _, _, _, _)) lit rest path =
   let val neglit = LTerm.negateLit lit
   in
-  writeln ("reduce with lit = " ^ PolyML.makestring lit ^ " and path = " ^ PolyML.makestring path);
-  case Utils.findSome (Unif.unify sub neglit) path of
-    (* negated literal is on the path *)
-    SOME reduction => real_reduce opts mat state lit rest reduction
-  | NONE => extend opts mat state lit rest (Matrix.entries mat neglit)
+    writeln ("reduce with lit = " ^ PolyML.makestring lit ^ " and path = " ^ PolyML.makestring path);
+    case Utils.findSome (Unif.unify sub (LTerm.negateLit lit)) path of
+      (* negated literal is on the path *)
+      SOME reduction => real_reduce opts mat state lit rest reduction
+    | NONE => extend opts mat state lit rest (Matrix.entries mat neglit)
   end
 and real_reduce opts mat (state as (_, hist, alt, todo, prf)) lit rest (_, nsub, path) =
   let (* possibly try to reduce with other literal on path later *)
@@ -430,11 +430,11 @@ and extend opts mat (state as (sub, (_, _, path_len), alt, _, _)) lit rest entri
           if path_len >= #max_path_len opts andalso vars > 0 then NONE
           else Unif.unify_contra sub lit entry
   in
-  writeln ("extend with entries = " ^ PolyML.makestring entries);
-  case Utils.findSome extensible entries of
-    (* we can unify literal with some matrix entry *)
-    SOME extension => real_extend opts mat state lit rest extension
-  | NONE => alt ()
+    writeln ("extend with entries = " ^ PolyML.makestring entries);
+    case Utils.findSome extensible entries of
+      (* we can unify literal with some matrix entry *)
+      SOME extension => real_extend opts mat state lit rest extension
+    | NONE => alt ()
   end
 and real_extend opts mat (state as (sub, (path, lem, path_len), alt, todo, prf)) lit rest (entry, (nsub, cla1), et) =
   let val hist1 = (lit :: path, lem, path_len + 1)
