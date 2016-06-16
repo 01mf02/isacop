@@ -31,6 +31,7 @@ fun transform_leaf leaf = leaf |>> map Free ||> free_to_const |> subst_bounds |>
 
 structure SymIntBimap = IntBimap (type key = string val ord = fast_string_ord)
 fun sym_int m x = SymIntBimap.forward (m, x) |> Option.valOf
+fun int_sym m x = SymIntBimap.backward (m, x) |> Option.valOf
 
 val tree_path_quants =
   Tree.path_tree [] #> Tree.branches #> List.mapPartial (Utils.option_map_snd get_Quant)
@@ -67,6 +68,15 @@ val to_preclauses = Tree.debinarize (Bin And) #> map (Tree.debinarize (Bin Or) #
 
 fun to_clauses bimaps = (map o map) (apsnd (to_lterm bimaps) #> LTerm.toLit)
 
+fun parens s = "(" ^ s ^ ")"
+fun print_lterm (cm, vm) = Tree.to_string (int_sym cm, int_sym vm)
+fun print_pred (cm, _) p = if p > 0 then int_sym cm p else "~" ^ int_sym cm (~p)
+fun print_lit bimaps (p, ts) = print_pred bimaps p ^
+  "(" ^ String.concatWith ", " (List.map (print_lterm bimaps) ts) ^ ")"
+fun print_clause bimaps = String.concatWith " \\/ " o List.map (print_lit bimaps)
+fun print_clauses bimaps = String.concatWith "\n" o List.map (parens o print_clause bimaps)
+
+
 fun mk_skolem_term (f, args) =
   list_comb (Const (f, dummyT), map (fn arg => Free (arg, dummyT)) args)
 
@@ -86,6 +96,7 @@ fun clauses_of_term t =
       val consts = tree_consts lt []
       val bimaps = (const_bimap sklm consts, var_bimap vars)
       val clauses = lt |> strip_quants |> to_preclauses |> to_clauses bimaps
+      val _ = writeln (print_clauses bimaps clauses)
   in (clauses, (bimaps, lt))
   end
 
