@@ -8,6 +8,9 @@ fun nat_of_int i = if i >= 0 then 2*i else ~(2*i + 1)
 fun int_nat_inverse i = int_of_nat (nat_of_int i) = i
 val int_nat_test = @{assert} (int_nat_inverse 5 andalso int_nat_inverse (~3))
 
+(* Return first element that returns SOME plus the rest of the list, else NONE. *)
+fun findSome f (x :: xs) = (case f x of SOME y => SOME (x, y, xs) | NONE => findSome f xs)
+  | findSome _ [] = NONE
 
 (*Run function for every element and all other elements of the list.
   For example: app_rest [] f [1, 2, 3] =

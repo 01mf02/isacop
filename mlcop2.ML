@@ -361,7 +361,9 @@ type history
 type 'a alternative
 type ('a, 'b) promise
 
-val prove : 'b Matrix.matrix -> (Unif.subst * Unif.offset) -> history ->
+type options
+
+val prove : options -> 'b Matrix.matrix -> (Unif.subst * Unif.offset) -> history ->
   'a alternative -> ('a, 'b) promise -> 'b proof -> LTerm.clause -> 'a
 val maybe_prove : 'a Matrix.matrix -> int -> (Unif.subst * 'a proof) option
 
@@ -370,14 +372,16 @@ end
 structure mlCoP : MLCOP =
 struct
 
-val cut1 = true
-val cut2 = true
-val cut3 = true
-
 type path   = LTerm.lit list
 type lemmas = LTerm.lit list
 type history = path * lemmas * int
 
+type options =
+{ cut_prove : bool
+, cut_reduce : bool
+, cut_extend : bool
+, max_path_len : int
+}
 
 type 'a proof_step = (LTerm.lit, Unif.offset * 'a Matrix.contrapositive) CProof.proof_step
 type 'a proof = 'a proof_step list
@@ -386,55 +390,51 @@ type 'a proof = 'a proof_step list
 type 'a alternative = unit -> 'a
 type ('a, 'b) promise = Unif.subst_offset -> 'a alternative -> 'b proof -> 'a
 
-(* Return first element that returns SOME plus the rest of the list, else NONE. *)
-fun findSome f (x :: xs) = (case f x of SOME y => SOME (x, y, xs) | NONE => findSome f xs)
-  | findSome _ [] = NONE
-
-fun prove mat sub (hist as (path, lem, _)) alt todo prf cla =
+fun prove opts mat sub (hist as (path, lem, _)) alt todo prf cla =
   (writeln ("prove with cla = " ^ PolyML.makestring cla);
   case cla of
     [] => todo sub alt prf
   | (cl as lit :: rest) =>
-     let val cont = (fn () => reduce mat sub lit rest hist alt todo prf path)
-         val nalt = if cut1 then alt else cont
+     let val cont = (fn () => reduce opts mat sub lit rest hist alt todo prf path)
+         val nalt = if #cut_prove opts then alt else cont
          (* regularity check: all clause literals should not be on path *)
      in  if List.exists (fn x => List.exists (Unif.eq sub x) path) cl
            then alt ()
          (* if literal is among the lemmas, remove it and treat rest clause *)
          else if List.exists (Unif.eq sub lit) lem
-           then prove mat sub hist nalt todo (CProof.Lemma lit :: prf) rest
+           then prove opts mat sub hist nalt todo (CProof.Lemma lit :: prf) rest
          else
-           reduce mat sub lit rest hist alt todo prf path
+           reduce opts mat sub lit rest hist alt todo prf path
      end)
-and reduce mat sub lit rest hist alt todo prf path =
+and reduce opts mat sub lit rest hist alt todo prf path =
     let val neglit = LTerm.negateLit lit
     in
     writeln ("reduce with lit = " ^ PolyML.makestring lit ^ " and path = " ^ PolyML.makestring path);
-    case findSome (Unif.unify sub neglit) path of
+    case Utils.findSome (Unif.unify sub neglit) path of
       (* negated literal is on the path *)
       SOME (_, nsub, pt) =>
         let (* possibly try to reduce with other literal on path later *)
-            fun cont () = reduce mat sub lit rest hist alt todo prf pt
-            val nalt = if cut2 then alt else cont
-        in prove mat nsub hist nalt todo (CProof.Path lit :: prf) rest
+            fun cont () = reduce opts mat sub lit rest hist alt todo prf pt
+            val nalt = if #cut_reduce opts then alt else cont
+        in prove opts mat nsub hist nalt todo (CProof.Path lit :: prf) rest
         end
-    | NONE => extend mat sub lit rest hist alt todo prf (Matrix.entries mat neglit)
+    | NONE => extend opts mat sub lit rest hist alt todo prf (Matrix.entries mat neglit)
     end
-and extend mat sub lit rest (hist as (path, lem, lim)) alt todo prf entries =
+and extend opts mat sub lit rest (hist as (path, lem, path_len)) alt todo prf entries =
     let fun extensible (entry as (_, _, vars, _)) =
-            if lim <= 0 andalso vars > 0 then NONE
+            if path_len >= #max_path_len opts andalso vars > 0 then NONE
             else Unif.unify_contra sub lit entry
     in
     writeln ("extend with entries = " ^ PolyML.makestring entries);
-    case findSome extensible entries of
+    case Utils.findSome extensible entries of
       (* we can unify literal with some matrix entry *)
       SOME (entry, (nsub, cla1), et) =>
-          let val hist1 = (lit :: path, lem, lim - 1)
-              val hist2 = (path, lit :: lem, lim)
+          let val hist1 = (lit :: path, lem, path_len + 1)
+              val hist2 = (path, lit :: lem, path_len)
               val prf1  = CProof.Resolution (lit, (snd sub, entry)) :: prf
-              fun todo1 sub alt2 prf = prove mat sub hist2 (if cut3 then alt else alt2) todo prf rest
-              fun alt1 () = extend mat sub lit rest hist alt todo prf et
-          in  prove mat nsub hist1 alt1 todo1 prf1 cla1
+              fun todo1 sub alt2 prf = prove opts mat sub hist2 (if #cut_extend opts then alt else alt2) todo prf rest
+              fun alt1 () = extend opts mat sub lit rest hist alt todo prf et
+          in  prove opts mat nsub hist1 alt1 todo1 prf1 cla1
           end
     | NONE => alt ()
     end
@@ -442,13 +442,14 @@ and extend mat sub lit rest (hist as (path, lem, lim)) alt todo prf entries =
 val hashek = 1
 
 fun maybe_prove mat lim =
-  let val sub = (Subst.empty, 0)
+  let val opts = {cut_prove = true, cut_reduce = true, cut_extend = true, max_path_len = lim}
+      val sub = (Subst.empty, 0)
       val hist = ([], [], lim)
       val prf = []
       val cla = [(hashek, [])]
       fun alt () = NONE
       fun todo sub _ prf = SOME (fst sub, prf)
-  in prove mat sub hist alt todo prf cla
+  in prove opts mat sub hist alt todo prf cla
   end
 
 end
