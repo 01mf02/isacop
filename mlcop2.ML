@@ -365,7 +365,7 @@ type options
 type ('a, 'b) state
 
 val prove : options -> 'b Matrix.matrix -> ('a, 'b) state -> LTerm.clause -> 'a
-val maybe_prove : 'a Matrix.matrix -> int -> (Unif.subst * 'a proof) option
+val maybe_prove : options -> 'a Matrix.matrix -> (Unif.subst * 'a proof) option
 
 end
 
@@ -456,9 +456,6 @@ fun empty_state () =
 
 val hashek = 1
 
-fun maybe_prove mat lim =
-  let val opts = {cut_prove = true, cut_reduce = true, cut_extend = true, max_path_len = lim}
-  in prove opts mat (empty_state ()) [(hashek, [])]
-  end
+fun maybe_prove opts mat = prove opts mat (empty_state ()) [(hashek, [])]
 
 end
