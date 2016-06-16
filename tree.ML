@@ -22,6 +22,10 @@ fun debinarize b br = case br of
     (Branch (b', [n1, n2])) => if b = b' then n1 :: debinarize b n2 else [br]
   | _ => [br]
 
+fun to_string (_, sl) (Leaf l) = sl l
+  | to_string (sb, sl) (Branch (b, nodes)) =
+      sb b ^ "(" ^ String.concatWith ", " (List.map (to_string (sb, sl)) nodes) ^ ")"
+
 end
 
 structure Monoid_Tree =
