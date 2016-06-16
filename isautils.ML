@@ -13,7 +13,7 @@ fun mini_simpset ctxt =
 
 fun simp_only_tac ctxt ths =
   put_simpset (mini_simpset ctxt) ctxt addsimps ths
-  |> TRY oo asm_full_simp_tac
+  |> TRY oo full_simp_tac
 
 fun make_conj_rule [] = @{thm TrueI}
   | make_conj_rule (th :: []) = th

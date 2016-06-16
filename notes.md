@@ -1,3 +1,27 @@
+17.6.2016
+=========
+
+Prenex normal form
+------------------
+
+Unfortunately, we cannot abolish the usage of prenex normal form,
+because the clausification depends on it to function properly.
+For example, clausifying $a \lor (\forall x. (P(x) \land b))$
+will not rewrite via $x \lor (b \land c) \implies (x \land b) \lor (x \land c)$,
+because the forall quantifier is in the way.
+Adding new rewrite rules will also not work, because one can have arbitrarily
+complex nestings of quantifiers.
+
+`simp_tac`
+----------
+
+To use `simp_tac` during the preparation tactics, `simp_tac` alone is
+not sufficient, because $\neg (a \land hashek)$ does not get rewritten.
+On the other hand, when using `asm_full_simp_tac`, the different clauses
+seem to interact with each other, which can lead to the actual conclusion
+being lost. So `full_simp_tac` so far seems to be a good compromise.
+
+
 13.6.2016
 =========
 
