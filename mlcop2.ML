@@ -444,7 +444,7 @@ val hashek = 1
 fun maybe_prove mat lim =
   let val opts = {cut_prove = true, cut_reduce = true, cut_extend = true, max_path_len = lim}
       val sub = (Subst.empty, 0)
-      val hist = ([], [], lim)
+      val hist = ([], [], 0)
       val prf = []
       val cla = [(hashek, [])]
       fun alt () = NONE
