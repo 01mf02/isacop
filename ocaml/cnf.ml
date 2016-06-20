@@ -11,7 +11,7 @@ type form = Atom of (int * term list)
 
 exception Unify;;
 
-let subst = Array.create 1000000 (None : term option);;
+let subst = Array.make 1000000 (None : term option);;
 let sh = ref [];;
 let rec restore_subst env =
   if not (!sh == env) then
