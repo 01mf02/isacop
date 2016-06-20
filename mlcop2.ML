@@ -353,6 +353,7 @@ type ('a, 'b) state
 
 val prove : options -> 'b Matrix.matrix -> ('a, 'b) state -> LTerm.clause -> 'a
 val maybe_prove : options -> 'a Matrix.matrix -> (Unif.subst * 'a proof) option
+val iterative_prove : options -> 'a Matrix.matrix -> (Unif.subst * 'a proof) option
 
 end
 
@@ -370,6 +371,10 @@ type options =
 , max_path_len : int
 }
 
+fun set_max_path_len mpl {cut_prove = cp, cut_reduce = cr, cut_extend = ce, max_path_len = _} =
+  {cut_prove = cp, cut_reduce = cr, cut_extend = ce, max_path_len = mpl}
+
+
 type 'a proof_step = (LTerm.lit, Unif.offset * 'a Matrix.contrapositive) CProof.proof_step
 type 'a proof = 'a proof_step list
 
@@ -382,7 +387,7 @@ type ('a, 'b) state =
 
 
 fun prove opts mat (state as (sub, hist as (path, lem, _), alt, todo, prf)) cla =
-  (writeln ("prove with cla = " ^ PolyML.makestring cla);
+  ((* writeln ("prove with cla = " ^ PolyML.makestring cla); *)
   case cla of
     [] => todo sub alt prf
   | (cl as lit :: rest) =>
@@ -400,7 +405,7 @@ fun prove opts mat (state as (sub, hist as (path, lem, _), alt, todo, prf)) cla 
 and reduce opts mat (state as (sub, _, _, _, _)) lit rest path =
   let val neglit = LTerm.negateLit lit
   in
-    writeln ("reduce with lit = " ^ PolyML.makestring lit ^ " and path = " ^ PolyML.makestring path);
+    (* writeln ("reduce with lit = " ^ PolyML.makestring lit ^ " and path = " ^ PolyML.makestring path); *)
     case Utils.findSome (Unif.unify sub (LTerm.negateLit lit)) path of
       (* negated literal is on the path *)
       SOME reduction => real_reduce opts mat state lit rest reduction
@@ -417,7 +422,7 @@ and extend opts mat (state as (sub, (_, _, path_len), alt, _, _)) lit rest entri
           if path_len >= #max_path_len opts andalso vars > 0 then NONE
           else Unif.unify_contra sub lit entry
   in
-    writeln ("extend with entries = " ^ PolyML.makestring entries);
+    (* writeln ("extend with entries = " ^ PolyML.makestring entries); *)
     case Utils.findSome extensible entries of
       (* we can unify literal with some matrix entry *)
       SOME extension => real_extend opts mat state lit rest extension
@@ -446,5 +451,11 @@ fun empty_state () =
 val hashek = 1
 
 fun maybe_prove opts mat = prove opts mat (empty_state ()) [(hashek, [])]
+
+(* Iterative deepening *)
+fun iterative_prove opts mat =
+  let fun depth_prove d = maybe_prove (set_max_path_len d opts) mat
+  in Utils.iterate_until (fn d => d > #max_path_len opts) depth_prove 0
+  end
 
 end

@@ -29,4 +29,9 @@ fun option_map_snd f (x, y) = Option.map (pair x) (f y)
 
 val maximum = List.foldr Int.max 0
 
+fun iterate_until b f x =
+  if b x then NONE
+  else case f x of SOME y => SOME y
+                 | NONE => iterate_until b f (x+1)
+
 end

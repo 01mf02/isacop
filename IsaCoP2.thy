@@ -68,5 +68,5 @@ lemma "
   \<Longrightarrow> P(a)
   \<Longrightarrow> Q(b, a, b)
   \<Longrightarrow> P(b)"
-apply (isacop 1000)
+apply (isacop 100)
 sorry
