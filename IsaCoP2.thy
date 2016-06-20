@@ -57,6 +57,7 @@ sorry
 lemma "b \<or> (\<forall>x. (P(x) \<and> b)) \<Longrightarrow> b"
 apply (tactic {* IsaCoP.pre_isacop_tac @{context} 1 *})
 apply (tactic {* IsaCoP.raw_isacop_tac 10 @{context} 1 *})
+sorry
 
 (* Chad's problem: A lemma that blast cannot solve, but Metis can instantly. *)
 lemma "

@@ -15,6 +15,19 @@ fun simp_only_tac ctxt ths =
   put_simpset (mini_simpset ctxt) ctxt addsimps ths
   |> TRY oo full_simp_tac
 
+fun fold_map_abs_vars f (t $ u) acc =
+      let val (t', (u', acc')) = acc |> fold_map_abs_vars f t ||> fold_map_abs_vars f u
+      in (t' $ u', acc')
+      end
+  | fold_map_abs_vars f (Abs (x, T, t)) acc =
+      let val (x', acc') = f x acc
+          val (t', acc'') = fold_map_abs_vars f t acc'
+      in (Abs (x', T, t'), acc'')
+      end
+  | fold_map_abs_vars _ t acc = (t, acc)
+
+val rename_abs_distinct = fold_map_abs_vars (fn x => fn i => (x ^ Int.toString i, i+1))
+
 fun make_conj_rule [] = @{thm TrueI}
   | make_conj_rule (th :: []) = th
   | make_conj_rule (th :: ths) = @{thm conjI} OF [th, make_conj_rule ths]

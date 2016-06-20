@@ -68,13 +68,29 @@ val to_preclauses = Tree.debinarize (Bin And) #> map (Tree.debinarize (Bin Or) #
 
 fun to_clauses bimaps = (map o map) (apsnd (to_lterm bimaps) #> LTerm.toLit)
 
-fun parens s = "(" ^ s ^ ")"
-fun print_lterm (cm, vm) = Tree.to_string (int_sym cm, int_sym vm)
+structure Tptp =
+struct
+
+val prepend = curry (op ^)
+fun enclose start stop s = start ^ s ^ stop
+val parens = enclose "(" ")"
+val normalise = String.translate (fn c => if c = #"." then "_" else String.str c)
+fun print_lterm (cm, vm) =
+  Tree.to_string (prepend "c" o normalise o int_sym cm, prepend "X" o int_sym vm)
 fun print_pred (cm, _) p = if p > 0 then int_sym cm p else "~" ^ int_sym cm (~p)
-fun print_lit bimaps (p, ts) = print_pred bimaps p ^
-  "(" ^ String.concatWith ", " (List.map (print_lterm bimaps) ts) ^ ")"
-fun print_clause bimaps = String.concatWith " \\/ " o List.map (print_lit bimaps)
-fun print_clauses bimaps = String.concatWith "\n" o List.map (parens o print_clause bimaps)
+val atom_of_lit = apfst Int.abs
+fun lit_prefix (p, _) = if p > 0 then "" else "~ "
+
+fun print_lit bimaps lit = lit_prefix lit ^ (lit |> atom_of_lit |> Tree.Branch |> print_lterm bimaps)
+fun print_clause bimaps = parens o String.concatWith " | " o List.map (print_lit bimaps)
+fun print_clauses bimaps = String.concatWith "\n" o List.map (print_clause bimaps)
+fun print_cnf bimaps =
+  map_index (fn (i, cl) => ["ax" ^ Int.toString i, "axiom", print_clause bimaps cl])
+val hashek_cnf = ["hashek", "negated_conjecture", "(c" ^ normalise @{const_name hashek} ^ ")"]
+fun cnf bimaps cls = hashek_cnf :: print_cnf bimaps cls
+val cnf_line = enclose "cnf" "." o parens o String.concatWith ", "
+
+end
 
 
 fun mk_skolem_term (f, args) =
@@ -87,8 +103,10 @@ fun subst_skolems sklm t = case t of
 
 fun skolemise_terms sklm = Tree.map_leafs (map_aterms (subst_skolems sklm) #> Tree.Leaf)
 
+fun distinguish_vars t = IsaUtils.rename_abs_distinct t 0 |> fst
+
 fun clauses_of_term t =
-  let val st = t |> syntax_tree [] |> Tree.map_leafs transform_leaf
+  let val st = t |> distinguish_vars |> syntax_tree [] |> Tree.map_leafs transform_leaf
       val quants = tree_path_quants st
       val vars = allquantified_variables quants
       val sklm = skolems quants
@@ -96,7 +114,7 @@ fun clauses_of_term t =
       val consts = tree_consts lt []
       val bimaps = (const_bimap sklm consts, var_bimap vars)
       val clauses = lt |> strip_quants |> to_preclauses |> to_clauses bimaps
-      val _ = writeln (print_clauses bimaps clauses)
+      val _ = List.app writeln (Tptp.cnf bimaps clauses |> List.map Tptp.cnf_line)
   in (clauses, (bimaps, lt))
   end
 

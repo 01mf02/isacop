@@ -22,9 +22,12 @@ fun debinarize b br = case br of
     (Branch (b', [n1, n2])) => if b = b' then n1 :: debinarize b n2 else [br]
   | _ => [br]
 
-fun to_string (_, sl) (Leaf l) = sl l
-  | to_string (sb, sl) (Branch (b, nodes)) =
-      sb b ^ "(" ^ String.concatWith ", " (List.map (to_string (sb, sl)) nodes) ^ ")"
+fun fold_tree (_, fl) (Leaf l) = fl l
+  | fold_tree (fb, fl) (Branch (b, nodes)) = fb (b, map (fold_tree (fb, fl)) nodes)
+
+fun to_string (sb, sl) = fold_tree (fn (b, nodes) => case nodes of
+    [] => sb b
+  | _  => sb b ^ "(" ^ String.concatWith ", " nodes ^ ")", sl)
 
 end
 
