@@ -204,21 +204,31 @@ open FTerm
 
 exception Unify
 
-fun isTriv sub x (Leaf y) = x = y orelse Subst.map false (isTriv sub x) sub y
-  | isTriv sub x (Branch (_, a)) = if List.exists (isTriv sub x) a then raise Unify else false
+(* Substitute a term until f is true or the term cannot be substituted further *)
+fun subst_until sub f (l as Leaf x) = if f x then l else Subst.map l (subst_until sub f) sub x
+  | subst_until sub f (b as Branch _) = b
 
+(* Return whether the term t is substituted to variable x.
+   Raise exception if t is substituted to contain x as proper subterm (occurs check). *)
+fun isTriv sub x t = case subst_until sub (fn y => x = y) t of
+    Leaf y => x = y
+  | Branch (_, a) => if List.exists (isTriv sub x) a then raise Unify else false
+
+(* Add a substitution from x to t only if there does not exist an equivalent substitution yet. *)
 fun addSubst sub x t = if isTriv sub x t then sub else Subst.add sub x t
 
-fun unifyTerm (Tree.Branch (f, fa), Tree.Branch (g, ga), sub) = if f <> g then raise Unify else unifyTerms sub (fa, ga)
-  | unifyTerm (Leaf x, tm, sub) = Subst.map (addSubst sub x tm) (fn t => unifyTerm (tm, t, sub)) sub x
+(* Return new substitution if two terms can be unified, else raise exception. *)
+fun unifyTerm (Tree.Branch (f, fa), Tree.Branch (g, ga), sub) =
+      if f <> g then raise Unify else unifyTerms sub (fa, ga)
+  | unifyTerm (Leaf x, tm, sub) =
+      Subst.map (addSubst sub x tm) (fn t => unifyTerm (tm, t, sub)) sub x
   | unifyTerm (tm, Leaf x, sub) = unifyTerm (Leaf x, tm, sub)
 and unifyTerms sub = ListPair.foldlEq unifyTerm sub
 
-(*True if variable is equivalent to another variable under substitution.*)
-fun eqVar sub x (Leaf y) = x = y orelse Subst.map false (eqVar sub x) sub y
-  | eqVar _   _ (Branch _) = false
-
 fun unifyLit sub (h1, l1) (h2, l2) = if h1 <> h2 then raise Unify else unifyTerms sub (l1, l2)
+
+(* Return whether term can be substituted to a variable (no occurs check). *)
+fun eqVar sub x t = case subst_until sub (fn y => x = y) t of Leaf y => x = y | Branch _ => false
 
 fun eqTerm sub (t1, t2) = case (t1, t2) of
     (Branch(f, fa), Branch(g, ga)) => f = g andalso eqTermList sub (fa, ga)
@@ -236,11 +246,10 @@ sig
 
 type offset
 type subst
-type subst_offset
-val eq : subst_offset -> LTerm.lit -> LTerm.lit -> bool
-val unify : subst_offset -> LTerm.lit -> LTerm.lit -> subst_offset option
-val unify_contra : subst_offset -> LTerm.lit -> 'a Matrix.contrapositive ->
-  (subst_offset * LTerm.clause) option
+val eq : subst * offset -> LTerm.lit -> LTerm.lit -> bool
+val unify : subst * offset -> LTerm.lit -> LTerm.lit -> (subst * offset) option
+val unify_contra : subst * offset -> LTerm.lit -> 'a Matrix.contrapositive ->
+  ((subst * offset) * LTerm.clause) option
 end
 
 structure Unif : UNIF =
@@ -250,18 +259,14 @@ open Tree
 
 type offset = int
 type subst = (LTerm.constant, LTerm.variable) Subst.subst
-type subst_offset = (LTerm.constant, LTerm.variable) Subst.subst * offset
-
-(*Unify with renaming of the second argument.*)
-fun unify_rename off (t1, t2, sub) = FUnify.unifyTerm (t1, LTerm.offsetTermVars off t2, sub)
-and unify_rename_list off = ListPair.foldlEq (unify_rename off)
 
 fun unify_contrapos sub off (_, args1) (args2, rest, vars, _) =
     if vars = 0 then ((FUnify.unifyTerms sub (args1, args2), off), rest)
     else
-      let val sub' = unify_rename_list off sub (args1, args2)
+      let val args2' = List.map (LTerm.offsetTermVars off) args2
+          val sub' = FUnify.unifyTerms sub (args1, args2')
           val rest' = List.map (LTerm.offsetLitVars off) rest
-      in  ((sub', off + vars), rest')
+      in  ((sub', vars + off), rest')
       end
 
 fun eq (sub, _) l1 l2 = FUnify.eqLit sub l1 l2
@@ -380,7 +385,7 @@ type 'a proof = 'a proof_step list
 
 (* continuation types *)
 type 'a alternative = unit -> 'a
-type ('a, 'b) promise = Unif.subst_offset -> 'a alternative -> 'b proof -> 'a
+type ('a, 'b) promise = Unif.subst * Unif.offset -> 'a alternative -> 'b proof -> 'a
 
 type ('a, 'b) state =
   (Unif.subst * Unif.offset) * history * 'a alternative * ('a, 'b) promise * 'b proof
