@@ -14,8 +14,6 @@ val A : ('c * ('c, 'v) term list) -> ('c, 'v) term
 val V : 'v -> ('c, 'v) term
 
 val destApp : ('c, 'v) term -> ('c * ('c, 'v) term list)
-val mapVars : ('v -> ('c, 'v) term) -> ('c, 'v) term -> ('c, 'v) term
-val vars : ('c, 'v) term -> 'v list
 
 end
 
@@ -30,50 +28,51 @@ val V = Tree.Leaf
 fun destApp (Tree.Branch (f, args)) = (f, args)
   | destApp _ = raise Fail "destApp"
 
-val vars = Tree.leafs
-val mapVars = Tree.map_leafs
-
 end
 
 
 signature LTERM =
 sig
 
+type constant
 type variable
-type lit
 type term
+type lit
 type clause
 type clauses
 
 val toLit : bool * term -> lit
 val negateLit : lit -> lit
+
+val offsetTermVars : int -> term -> term
+val offsetLitVars : int -> lit -> lit
+
 val litVars : lit -> variable list
 val clauseVars : clause -> variable list
 
 end
 
 
-structure LTerm =
+structure LTerm : LTERM =
 struct
 
-type variable = int
 type constant = int
+type variable = int
 type predicate = int
 type term = (constant, variable) FTerm.term
 type lit = predicate * term list
 type clause = lit list
 type clauses = clause list
 
-fun toLit (pol, Tree.Branch (P, args)) = if pol then (P, args) else (~P, args)
+fun toLit (pol, Tree.Branch (P, args)) = (if pol then P else ~P, args)
   | toLit _ = raise Fail "toLit"
 
 fun negateLit (i, l) = (~i, l)
 
-fun offsetTermVars off = FTerm.mapVars (fn v => FTerm.V (v + off))
+fun offsetTermVars off = Tree.map_leafs (fn v => FTerm.V (v + off))
 fun offsetLitVars off (p, l) = (p, List.map (offsetTermVars off) l)
 
-fun litVars (_, ts) = List.concat (List.map FTerm.vars ts)
-
+fun litVars (_, ts) = List.concat (List.map Tree.leafs ts)
 fun clauseVars cl = List.concat (List.map litVars cl)
 
 end
@@ -84,10 +83,11 @@ sig
 
 type 'a contrapositive
 type 'a matrix
-val entries : 'a matrix -> LTerm.lit -> 'a contrapositive list
-val insert_clauses : 'a matrix -> (LTerm.clause * 'a) list -> unit
+
 val empty : int -> 'a matrix
+val insert_clause : 'a matrix -> LTerm.clause * 'a -> unit
 val from_list : (LTerm.clause * 'a) list -> 'a matrix
+val entries : 'a matrix -> LTerm.lit -> 'a contrapositive list
 
 end
 
@@ -101,34 +101,31 @@ type 'a contrapositive = (LTerm.term list * LTerm.clause * int * 'a)
 type 'a matrix = 'a contrapositive list Array.array
 
 
+fun empty size = Array.array (size, [])
+
 fun clauseMaxVar cl = 1 + List.foldl Int.max (~1) (LTerm.clauseVars cl)
 
-local
-  fun insert_contrapositive mat max_var info ((p,tl), rest) =
-    let val n = Utils.nat_of_int p
-    in  Array.update (mat, n, (tl, rest, max_var, info) :: Array.sub (mat, n))
-    end
+fun insert_contrapositive mat max_var info ((p, tl), rest) =
+  let val n = Utils.nat_of_int p
+  in  Array.update (mat, n, (tl, rest, max_var, info) :: Array.sub (mat, n))
+  end
 
-  fun insert_clause mat (cl, info) =
-    let val max_var = clauseMaxVar cl
-    in  Utils.app_rest [] (insert_contrapositive mat max_var info) cl
-    end
-in
-  fun insert_clauses mat = List.app (insert_clause mat)
-end
-
-fun entries mat (p, _) = Array.sub (mat, Utils.nat_of_int p)
-
-fun empty size = Array.array (size, [])
+fun insert_clause mat (cl, info) =
+  let val max_var = clauseMaxVar cl
+  in  Utils.app_rest [] (insert_contrapositive mat max_var info) cl
+  end
 
 fun from_list cls =
   let val preds = List.concat (map (map fst o fst) cls)
       val max_pred = preds |> map Utils.nat_of_int |> Utils.maximum
       val mat = empty (max_pred + 1)
-  in insert_clauses mat cls; mat
+  in List.app (insert_clause mat) cls; mat
   end
 
+fun entries mat (p, _) = Array.sub (mat, Utils.nat_of_int p)
+
 end
+
 
 (* Partial functions *)
 signature MORPHISM =
@@ -162,11 +159,7 @@ signature SUBST =
 sig
 
 include MORPHISM
-
 type ('c, ''v) subst
-
-val transitive : ('c, ''v) subst -> ('c, ''v) FTerm.term -> ('c, ''v) FTerm.term
-val normalise : ('c, ''v) subst -> ('c, ''v) subst
 
 end
 
@@ -174,13 +167,7 @@ structure Subst : SUBST =
 struct
 
 open ListMorphism
-
 type ('c, ''v) subst = (''v, ('c, ''v) FTerm.term) morphism
-
-fun transitive sub =
-  FTerm.mapVars (fn v => ListMorphism.map (FTerm.V v) (transitive sub) sub v)
-
-fun normalise sub = List.map (fn (v, t) => (v, transitive sub t)) sub
 
 end
 
@@ -217,12 +204,12 @@ open FTerm
 
 exception Unify
 
-fun isTriv sub x (Leaf y) = x = y orelse Subst.map false (fn t => isTriv sub x t) sub y
+fun isTriv sub x (Leaf y) = x = y orelse Subst.map false (isTriv sub x) sub y
   | isTriv sub x (Branch (_, a)) = if List.exists (isTriv sub x) a then raise Unify else false
 
 fun addSubst sub x t = if isTriv sub x t then sub else Subst.add sub x t
 
-fun unifyTerm (Tree.Branch(f, fa), Tree.Branch(g, ga), sub) = if f <> g then raise Unify else unifyTerms sub (fa, ga)
+fun unifyTerm (Tree.Branch (f, fa), Tree.Branch (g, ga), sub) = if f <> g then raise Unify else unifyTerms sub (fa, ga)
   | unifyTerm (Leaf x, tm, sub) = Subst.map (addSubst sub x tm) (fn t => unifyTerm (tm, t, sub)) sub x
   | unifyTerm (tm, Leaf x, sub) = unifyTerm (Leaf x, tm, sub)
 and unifyTerms sub = ListPair.foldlEq unifyTerm sub
@@ -436,11 +423,13 @@ and extend opts mat (state as (sub, (_, _, path_len), alt, _, _)) lit rest entri
       SOME extension => real_extend opts mat state lit rest extension
     | NONE => alt ()
   end
-and real_extend opts mat (state as (sub, (path, lem, path_len), alt, todo, prf)) lit rest (entry, (nsub, cla1), et) =
-  let val hist1 = (lit :: path, lem, path_len + 1)
+and real_extend opts mat state lit rest (entry, (nsub, cla1), et) =
+  let val (sub, (path, lem, path_len), alt, todo, prf) = state
+      val hist1 = (lit :: path, lem, path_len + 1)
       val hist2 = (path, lit :: lem, path_len)
       val step  = CProof.Resolution (lit, (snd sub, entry))
-      fun todo1 sub alt2 prf = prove opts mat (sub, hist2, if #cut_extend opts then alt else alt2, todo, prf) rest
+      fun todo1 sub alt2 prf =
+        prove opts mat (sub, hist2, if #cut_extend opts then alt else alt2, todo, prf) rest
       fun alt1 () = extend opts mat state lit rest et
   in  prove opts mat (nsub, hist1, alt1, todo1, step :: prf) cla1
   end
