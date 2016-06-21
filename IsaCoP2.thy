@@ -27,6 +27,7 @@ ML_file "tree.ML"
 ML_file "mlcop2.ML"
 ML_file "intbimap.ML"
 ML_file "isautils.ML"
+ML_file "tptp.ML"
 ML_file "isacop2.ML"
 
 declare [[ML_exception_trace = true]]

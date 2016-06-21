@@ -48,3 +48,8 @@ fun fromList l = List.foldl (swap #> insert #> fst) (empty (length l + 1)) l
 fun domain {forth, ...} = Tab.keys forth
 
 end
+
+
+structure SymIntBimap = IntBimap (type key = string val ord = fast_string_ord)
+fun sym_int m x = SymIntBimap.forward (m, x) |> Option.valOf
+fun int_sym m x = SymIntBimap.backward (m, x) |> Option.valOf

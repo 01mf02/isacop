@@ -206,7 +206,7 @@ exception Unify
 
 (* Substitute a term until f is true or the term cannot be substituted further *)
 fun subst_until sub f (l as Leaf x) = if f x then l else Subst.map l (subst_until sub f) sub x
-  | subst_until sub f (b as Branch _) = b
+  | subst_until _   _ (b as Branch _) = b
 
 (* Return whether the term t is substituted to variable x.
    Raise exception if t is substituted to contain x as proper subterm (occurs check). *)
