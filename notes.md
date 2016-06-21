@@ -1,3 +1,14 @@
+21.6.2016
+=========
+
+Cut
+---
+
+Using cut on Chad's problem seems to prevent finding a solution,
+in leanCoP as well as in mlCoP.
+
+
+
 17.6.2016
 =========
 
