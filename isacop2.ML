@@ -35,8 +35,14 @@ fun get_Quant (Bin _) = NONE | get_Quant (Quant q) = SOME q
 
 val free_to_const = map_aterms (fn t => case t of Free x => Const x | _ => t)
 
+fun to_fterm t = case strip_comb t of
+    (Free (x, _), []) => FTerm.V x
+  | (Const (x, _), args) => FTerm.A (x, map to_fterm args)
+  | _ => raise Fail "to_fterm"
+
 fun literal_of_term (@{const "IFOL.Not"} $ t) = (false, t)
   | literal_of_term t = (true, t)
+
 
 (* Convert a term in negation normal form to a syntax tree, where
    bound variables are replaced by constants with the variable name, and
@@ -53,6 +59,37 @@ fun literal_tree quants t = case t of
   | t => (map Free quants, free_to_const t) |> subst_bounds |> literal_of_term |> Tree.Leaf
 
 
+fun skolemise tree =
+  tree |> Tree.map_leafs (to_fterm #> Tree.Leaf)
+
+fun subst_vars subst = Tree.map_leafs (fn x => Utils.lookup x subst |> Option.valOf |> Tree.Leaf)
+
+fun get_quant (All a) = a | get_quant (Ex e) = e
+fun set_quant (All a) a' = All a' | set_quant (Ex e) e' = Ex e'
+
+fun naturalise_variables (acc as (qi, i)) tree = case tree of
+    Tree.Branch (Quant q, nodes) =>
+      Tree.Branch (Quant (set_quant q i),
+        map (naturalise_variables ((get_quant q, i) :: qi, i+1)) nodes)
+  | Tree.Branch (Bin b, nodes) => Tree.Branch (Bin b, map (naturalise_variables acc) nodes)
+  | Tree.Leaf (pol, t) => (pol, subst_vars qi t) |> Tree.Leaf
+
+fun skolemise above tree i = case tree of
+    Tree.Branch (Quant (Ex _), nodes) =>
+      let val nodes' = List.map (Tree.map_leafs (undefined ())) nodes
+          val (nodes'', i') = fold_map (skolemise above) nodes' (i+1)
+      in  (Tree.Branch (Quant (Ex i), nodes''), i')
+      end
+  | Tree.Branch (Quant (All a), nodes) =>
+      let val (nodes', i') = fold_map (skolemise (a :: above)) nodes i
+      in (Tree.Branch (Quant (All a), nodes'), i')
+      end
+  | Tree.Branch (Bin b, nodes) =>
+      let val (nodes', i') = fold_map (skolemise above) nodes i
+      in  (Tree.Branch (Bin b, nodes'), i')
+      end
+  | Tree.Leaf l => l
+
 val tree_path_quants =
   Tree.path_tree [] #> Tree.branches #> List.mapPartial (Utils.option_map_snd get_Quant)
 
@@ -60,7 +97,6 @@ fun skolem (above, x) = (x, List.mapPartial (Option.composePartial (get_All, get
 
 val allquantified_variables = List.mapPartial (snd #> get_All)
 val skolems = List.mapPartial (Utils.option_map_snd get_Ex #> Option.map skolem)
-
 
 fun tree_consts tree = fold Term.add_const_names (Tree.leafs tree |> map snd)
 

@@ -12,6 +12,8 @@ val int_nat_test = @{assert} (int_nat_inverse 5 andalso int_nat_inverse (~3))
 fun findSome f (x :: xs) = (case f x of SOME y => SOME (x, y, xs) | NONE => findSome f xs)
   | findSome _ [] = NONE
 
+fun lookup x = Option.map snd o List.find (fn (y, _) => x = y)
+
 (*Run function for every element and all other elements of the list.
   For example: app_rest [] f [1, 2, 3] =
     f (1, [2, 3]);
