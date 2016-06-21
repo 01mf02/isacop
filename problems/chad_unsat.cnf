@@ -1,0 +1,8 @@
+cnf(hashek, negated_conjecture, (cIsaCoP2_hashek)). 
+cnf(ax0, axiom, (~ cP(cb) | ~ cIsaCoP2_hashek)). 
+cnf(ax1, axiom, (cQ(Xx0, Xy1, cz2(Xy1, Xx0)))). 
+cnf(ax2, axiom, (~ cP(Xx3) | ~ cP(Xy4) | ~ cQ(Xx3, Xy4, Xz5) | cP(Xz5))). 
+cnf(ax3, axiom, (~ cQ(Xx6, Xy7, Xz8) | ~ cQ(Xx6, Xy7, Xw9) | ~ cP(Xz8) | cP(Xw9))). 
+cnf(ax4, axiom, (~ cQ(ca, Xy10, Xz11) | ~ cQ(ca, Xz11, Xw12) | cQ(cb, Xy10, Xw12))). 
+cnf(ax5, axiom, (cP(ca))). 
+cnf(ax6, axiom, (cQ(cb, ca, cb))). 
