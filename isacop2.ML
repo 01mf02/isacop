@@ -134,7 +134,10 @@ fun raw_isacop_tac lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, con
     val prem = IsaUtils.make_conj_rule prems
     val (matrix, (bimaps, tree)) = clauses_of_thm prem |>> matrix_of_clauses
     val opts = {cut_prove = true, cut_reduce = true, cut_extend = false, max_path_len = lim}
-    val tac = Utils.maybe (K no_tac) reconstruct_tac (mlCoP.iterative_prove opts matrix)
+    val hashek = 1
+    val start_clause = [(hashek, [])]
+    val proof = mlCoP.iterative_prove opts matrix start_clause
+    val tac = Utils.maybe (K no_tac) reconstruct_tac proof
   in HEADGOAL tac
   end)
 

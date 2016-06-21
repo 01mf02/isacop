@@ -357,8 +357,7 @@ type options
 type ('a, 'b) state
 
 val prove : options -> 'b Matrix.matrix -> ('a, 'b) state -> LTerm.clause -> 'a
-val maybe_prove : options -> 'a Matrix.matrix -> (Unif.subst * 'a proof) option
-val iterative_prove : options -> 'a Matrix.matrix -> (Unif.subst * 'a proof) option
+val iterative_prove : options -> 'a Matrix.matrix -> LTerm.clause -> (Unif.subst * 'a proof) option
 
 end
 
@@ -444,22 +443,17 @@ and real_extend opts mat state lit rest (entry, (nsub, cla1), et) =
   in  prove opts mat (nsub, hist1, alt1, todo1, step :: prf) cla1
   end
 
-fun empty_state () =
-  let val sub = (Subst.empty, 0)
-      val hist = ([], [], 0)
-      fun alt () = NONE
-      fun todo sub _ prf = SOME (fst sub, prf)
-      val prf = []
-  in (sub, hist, alt, todo, prf)
-  end
-
-val hashek = 1
-
-fun maybe_prove opts mat = prove opts mat (empty_state ()) [(hashek, [])]
+val empty_state =
+( (Subst.empty, 0) (* substitution & offset *)
+, ([], [], 0) (* history *)
+, fn () => NONE (* alternative *)
+, fn sub => fn _ => fn prf => SOME (fst sub, prf) (* promise *)
+, [] (* proof *)
+)
 
 (* Iterative deepening *)
-fun iterative_prove opts mat =
-  let fun depth_prove d = maybe_prove (set_max_path_len d opts) mat
+fun iterative_prove opts mat clause =
+  let fun depth_prove d = prove (set_max_path_len d opts) mat empty_state clause
   in Utils.iterate_until (fn d => d > #max_path_len opts) depth_prove 0
   end
 
