@@ -9,10 +9,8 @@ Tableau prover with proof reconstruction
 signature EXPANSION_TREE =
 sig
 
-type bimaps
-type term_tree
-type lit_tree
-val literal_tree : (string * typ) list -> term -> lit_tree
+type syntax_tree
+val syntax_tree : (string * typ) list -> term -> syntax_tree
 val clauses_of_term : term ->  LTerm.lit list list * SymIntBimap.bimap
 
 
@@ -25,32 +23,30 @@ datatype binop = And | Or
 datatype ('a, 'e) quantifier = All of 'a | Ex of 'e
 datatype ('a, 'e) treeop = Bin of binop | Quant of ('a, 'e) quantifier
 
-type bimaps = SymIntBimap.bimap * SymIntBimap.bimap
-type term_tree = ((string, string) treeop, term) Tree.tree
-type lit_tree = ((string, string) treeop, bool * term) Tree.tree
+type syntax_tree = ((string, string) treeop, term) Tree.tree
 
 val free_to_const = map_aterms (fn t => case t of Free x => Const x | _ => t)
-
-fun literal_of_term (@{const "IFOL.Not"} $ t) = (false, t)
-  | literal_of_term t = (true, t)
 
 (* Convert a term in negation normal form to a syntax tree, where
    bound variables are replaced by constants with the variable name, and
    free variables are replaced by constants. *)
-fun literal_tree quants t = case t of
+fun syntax_tree quants t = case t of
     Const (@{const_name "IFOL.All"}, _) $ Abs (x, T, t') =>
-      Tree.Branch (Quant (All x), [literal_tree ((x, T) :: quants) t'])
+      Tree.Branch (Quant (All x), [syntax_tree ((x, T) :: quants) t'])
   | Const (@{const_name "IFOL.Ex"}, _) $ Abs (x, T, t') =>
-      Tree.Branch (Quant (Ex x), [literal_tree ((x, T) :: quants) t'])
+      Tree.Branch (Quant (Ex x), [syntax_tree ((x, T) :: quants) t'])
   | @{const "IFOL.conj"} $ t1 $ t2 =>
-      Tree.Branch (Bin And, map (literal_tree quants) [t1, t2])
+      Tree.Branch (Bin And, map (syntax_tree quants) [t1, t2])
   | @{const "IFOL.disj"} $ t1 $ t2 =>
-      Tree.Branch (Bin Or, map (literal_tree quants) [t1, t2])
-  | t => (map Free quants, free_to_const t) |> subst_bounds |> literal_of_term |> Tree.Leaf
+      Tree.Branch (Bin Or, map (syntax_tree quants) [t1, t2])
+  | t => (map Free quants, free_to_const t) |> subst_bounds |> Tree.Leaf
+
 
 
 fun get_quant (All a) = a | get_quant (Ex e) = e
 fun set_quant (All _) a' = All a' | set_quant (Ex _) e' = Ex e'
+
+fun naturalise_consts cm = Tree.map_leafs (apsnd (Tree.map_branches (sym_int cm)))
 
 fun naturalise_variables (acc as (qi, i)) tree = case tree of
     Tree.Branch (Quant q, nodes) =>
@@ -58,7 +54,6 @@ fun naturalise_variables (acc as (qi, i)) tree = case tree of
         map (naturalise_variables ((get_quant q, i) :: qi, i+1)) nodes)
   | Tree.Branch (Bin b, nodes) => Tree.Branch (Bin b, map (naturalise_variables acc) nodes)
   | Tree.Leaf (pol, t) => (pol, Tree.subst_all_leafs qi t) |> Tree.Leaf
-
 
 fun skolemise above tree i = case tree of
      Tree.Branch (Quant (Ex e), nodes) =>
@@ -77,21 +72,18 @@ fun skolemise above tree i = case tree of
       end
   | Tree.Leaf l => (Tree.Leaf l, i)
 
-val literal_tree_consts =
-  Tree.leafs #> map (Tree.branches o snd) #> List.concat #> distinct (op =)
-
+fun literal_of_term (@{const "IFOL.Not"} $ t) = (false, t)
+  | literal_of_term t = (true, t)
 
 fun to_fterm t = case strip_comb t of
     (Free (x, _), []) => FTerm.V x
   | (Const (x, _), args) => FTerm.A (x, map to_fterm args)
   | _ => raise Fail "to_fterm"
 
-fun naturalise_tree tree =
-  let val string_tree = Tree.map_leafs (apsnd to_fterm) tree
-      val cm = string_tree |> literal_tree_consts |> SymIntBimap.fromList
-      val naturalise_consts = Tree.map_leafs (apsnd (Tree.map_branches (sym_int cm)))
-  in (string_tree |> naturalise_consts |> naturalise_variables ([], 0), cm)
-  end
+val literal_tree = Tree.map_leafs (literal_of_term #> apsnd to_fterm)
+
+val literal_tree_consts =
+  Tree.leafs #> map (Tree.branches o snd) #> List.concat #> distinct (op =)
 
 fun skolem_tree cm = Utils.flip (skolemise []) (SymIntBimap.size cm + 1)
 
@@ -103,8 +95,10 @@ val to_clauses =
   Tree.debinarize (Bin And) #> map (Tree.debinarize (Bin Or) #> map (Tree.leaf_of #> LTerm.toLit))
 
 fun clauses_of_term t =
-  let val (natural, cm) = t |> literal_tree [] |> naturalise_tree
-      val (skolem, _) = skolem_tree cm natural
+  let val literal = t |> syntax_tree [] |> literal_tree
+      val cm = literal |> literal_tree_consts |> SymIntBimap.fromList
+      val natural = literal |> naturalise_consts cm |> naturalise_variables ([], 0)
+      val skolem = skolem_tree cm natural |> fst
   in (skolem |> strip_quants |> to_clauses, cm)
   end
 
