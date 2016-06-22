@@ -100,7 +100,9 @@ val clauses_of_skolem = strip_quants #> to_clauses
 
 fun skolem_of_term t =
   let val literal = t |> syntax_tree [] |> literal_tree
-      val cm = literal |> literal_tree_consts |> SymIntBimap.fromList
+      (*make sure that the integer index of all constants is > 0,
+        because only then can we distinguish positive from negative literals*)
+      val cm = SymIntBimap.fromList ("" :: literal_tree_consts literal)
       val natural = literal |> naturalise_consts cm |> naturalise_variables ([], 0)
   in (skolem_tree cm natural |> fst, cm)
   end
@@ -113,8 +115,6 @@ struct
 
 val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20);
 
-val clauses_of_thm = Thm.concl_of #> FOLogic.dest_Trueprop
-  #> Expansion_Tree.skolem_of_term #>> Expansion_Tree.clauses_of_skolem
 val matrix_of_clauses = map_index swap #> Matrix.from_list
 
 fun reconstruct_tac _ = (@{print} "Success."; K no_tac)
@@ -125,11 +125,13 @@ fun raw_isacop_tac lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, con
   let
     val _ = @{assert} ((Thm.term_of concl) aconv @{prop False})
     val prem = IsaUtils.make_conj_rule prems
-    val (matrix, cm) = clauses_of_thm prem |>> matrix_of_clauses
+    val t = prem |> Thm.concl_of |> FOLogic.dest_Trueprop
+    val (skolem, cm) = Expansion_Tree.skolem_of_term t
+    val clauses = skolem |> Expansion_Tree.clauses_of_skolem
+    val _ = clauses |> Tptp.cnf cm |> List.app (Tptp.show_cnf_line #> writeln)
     val opts = {cut_prove = true, cut_reduce = true, cut_extend = false, max_path_len = lim}
-    val hashek = 1
-    val start_clause = [(hashek, [])]
-    val proof = mlCoP.iterative_prove opts matrix start_clause
+    val start_clause = [(sym_int cm @{const_name hashek}, [])]
+    val proof = mlCoP.iterative_prove opts (matrix_of_clauses clauses) start_clause
     val tac = Utils.maybe (K no_tac) reconstruct_tac proof
   in HEADGOAL tac
   end)

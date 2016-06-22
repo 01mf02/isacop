@@ -31,11 +31,11 @@ type bimap = {
 , maxIndex : int
 }
 
-fun empty size = {forth = Tab.empty, back = Array.array (size, NONE), maxIndex = 1}
+fun empty size = {forth = Tab.empty, back = Array.array (size, NONE), maxIndex = 0}
 
 fun forward ({forth, ...}, x) = Tab.lookup forth x
 
-fun backward ({back, ...} : bimap, i) = Array.sub (back, i)
+fun backward ({back, maxIndex, ...}, i) = if i < maxIndex then Array.sub (back, i) else NONE
 
 local
   fun insertNew ({back = b, maxIndex = m, forth = f}, x) =
@@ -44,11 +44,11 @@ in
   fun insert (bm, x) = case forward (bm, x) of SOME i => (bm, i) | NONE => insertNew (bm, x)
 end
 
-fun fromList l = List.foldl (swap #> insert #> fst) (empty (length l + 1)) l
+fun fromList l = List.foldl (swap #> insert #> fst) (empty (length l)) l
 
 fun domain {forth, ...} = Tab.keys forth
 
-fun size ({maxIndex, ...} : bimap) = maxIndex
+fun size ({maxIndex, ...}) = maxIndex
 
 end
 
@@ -56,3 +56,17 @@ end
 structure SymIntBimap = IntBimap (type key = string val ord = fast_string_ord)
 fun sym_int m x = SymIntBimap.forward (m, x) |> Option.valOf
 fun int_sym m x = SymIntBimap.backward (m, x) |> Option.valOf
+
+structure SymIntBimap_Test =
+struct
+
+val elements = ["A", "B", "C"]
+val ibm = SymIntBimap.fromList elements
+val _ = @{assert} (SymIntBimap.size ibm = 3)
+val _ = @{assert} (SymIntBimap.domain ibm = elements)
+val _ = @{assert} (SymIntBimap.forward (ibm, "C") = SOME 2)
+val _ = @{assert} (SymIntBimap.forward (ibm, "D") = NONE)
+val _ = @{assert} (SymIntBimap.backward (ibm, 2) = SOME "C")
+val _ = @{assert} (SymIntBimap.backward (ibm, 3) = NONE)
+
+end
