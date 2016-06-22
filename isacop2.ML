@@ -10,9 +10,10 @@ signature EXPANSION_TREE =
 sig
 
 type syntax_tree
+type skolem_tree
 val syntax_tree : (string * typ) list -> term -> syntax_tree
-val clauses_of_term : term ->  LTerm.lit list list * SymIntBimap.bimap
-
+val skolem_of_term : term -> skolem_tree * SymIntBimap.bimap
+val clauses_of_skolem : skolem_tree -> LTerm.lit list list
 
 end
 
@@ -24,6 +25,7 @@ datatype ('a, 'e) quantifier = All of 'a | Ex of 'e
 datatype ('a, 'e) treeop = Bin of binop | Quant of ('a, 'e) quantifier
 
 type syntax_tree = ((string, string) treeop, term) Tree.tree
+type skolem_tree = ((int, int) treeop, bool * LTerm.term) Tree.tree
 
 val free_to_const = map_aterms (fn t => case t of Free x => Const x | _ => t)
 
@@ -41,6 +43,19 @@ fun syntax_tree quants t = case t of
       Tree.Branch (Bin Or, map (syntax_tree quants) [t1, t2])
   | t => (map Free quants, free_to_const t) |> subst_bounds |> Tree.Leaf
 
+
+fun literal_of_term (@{const "IFOL.Not"} $ t) = (false, t)
+  | literal_of_term t = (true, t)
+
+fun to_fterm t = case strip_comb t of
+    (Free (x, _), []) => FTerm.V x
+  | (Const (x, _), args) => FTerm.A (x, map to_fterm args)
+  | _ => raise Fail "to_fterm"
+
+val literal_tree = Tree.map_leafs (literal_of_term #> apsnd to_fterm)
+
+val literal_tree_consts =
+  Tree.leafs #> map (Tree.branches o snd) #> List.concat #> distinct (op =)
 
 
 fun get_quant (All a) = a | get_quant (Ex e) = e
@@ -72,19 +87,6 @@ fun skolemise above tree i = case tree of
       end
   | Tree.Leaf l => (Tree.Leaf l, i)
 
-fun literal_of_term (@{const "IFOL.Not"} $ t) = (false, t)
-  | literal_of_term t = (true, t)
-
-fun to_fterm t = case strip_comb t of
-    (Free (x, _), []) => FTerm.V x
-  | (Const (x, _), args) => FTerm.A (x, map to_fterm args)
-  | _ => raise Fail "to_fterm"
-
-val literal_tree = Tree.map_leafs (literal_of_term #> apsnd to_fterm)
-
-val literal_tree_consts =
-  Tree.leafs #> map (Tree.branches o snd) #> List.concat #> distinct (op =)
-
 fun skolem_tree cm = Utils.flip (skolemise []) (SymIntBimap.size cm + 1)
 
 fun strip_quants (Tree.Branch (Quant _, [t])) = strip_quants t
@@ -94,12 +96,13 @@ fun strip_quants (Tree.Branch (Quant _, [t])) = strip_quants t
 val to_clauses =
   Tree.debinarize (Bin And) #> map (Tree.debinarize (Bin Or) #> map (Tree.leaf_of #> LTerm.toLit))
 
-fun clauses_of_term t =
+val clauses_of_skolem = strip_quants #> to_clauses
+
+fun skolem_of_term t =
   let val literal = t |> syntax_tree [] |> literal_tree
       val cm = literal |> literal_tree_consts |> SymIntBimap.fromList
       val natural = literal |> naturalise_consts cm |> naturalise_variables ([], 0)
-      val skolem = skolem_tree cm natural |> fst
-  in (skolem |> strip_quants |> to_clauses, cm)
+  in (skolem_tree cm natural |> fst, cm)
   end
 
 end
@@ -110,10 +113,13 @@ struct
 
 val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20);
 
-val clauses_of_thm = Thm.concl_of #> FOLogic.dest_Trueprop #> Expansion_Tree.clauses_of_term
+val clauses_of_thm = Thm.concl_of #> FOLogic.dest_Trueprop
+  #> Expansion_Tree.skolem_of_term #>> Expansion_Tree.clauses_of_skolem
 val matrix_of_clauses = map_index swap #> Matrix.from_list
 
 fun reconstruct_tac _ = (@{print} "Success."; K no_tac)
+
+val hashek_true = @{lemma "hashek" by (simp add: hashek_def)}
 
 fun raw_isacop_tac lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, concl: cterm, ...} =>
   let
