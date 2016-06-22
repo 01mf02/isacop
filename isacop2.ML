@@ -72,7 +72,7 @@ fun naturalise_variables (acc as (qi, i)) tree = case tree of
 fun skolemise above tree i = case tree of
      Tree.Branch (Quant (Ex e), nodes) =>
       let val skolem = FTerm.A (i, map FTerm.V above)
-          val subst = Tree.map_leafs (apsnd (Tree.subst_some_leafs [(e, skolem)]) #> Tree.Leaf)
+          val subst = Tree.map_leafs (apsnd (Tree.subst_some_leafs [(e, skolem)]))
           val (nodes', i') = fold_map (skolemise above) (List.map subst nodes) (i+1)
       in  (Tree.Branch (Quant (Ex i), nodes'), i')
       end
@@ -88,7 +88,7 @@ fun skolemise above tree i = case tree of
 
 fun skolem_tree cm tree =
   let val naturalised = tree
-    |> Tree.map_leafs (apsnd (to_fterm #> Tree.map_branches (sym_int cm)) #> Tree.Leaf)
+    |> Tree.map_leafs (apsnd (to_fterm #> Tree.map_branches (sym_int cm)))
     |> naturalise_variables ([], 0)
   in skolemise [] naturalised 0
   end
@@ -132,7 +132,7 @@ fun subst_skolems sklm t = case t of
     (Free (x, _)) => Utils.maybe t mk_skolem_term (List.find (fn (x', _) => x = x') sklm)
   | _ => t
 
-fun skolemise_terms sklm = Tree.map_leafs (apsnd (map_aterms (subst_skolems sklm)) #> Tree.Leaf)
+fun skolemise_terms sklm = Tree.map_leafs (apsnd (map_aterms (subst_skolems sklm)))
 
 fun distinguish_vars t = IsaUtils.rename_abs_distinct t 0 |> fst
 

@@ -69,7 +69,7 @@ fun toLit (pol, Tree.Branch (P, args)) = (if pol then P else ~P, args)
 
 fun negateLit (i, l) = (~i, l)
 
-fun offsetTermVars off = Tree.map_leafs (fn v => FTerm.V (v + off))
+fun offsetTermVars off = Tree.map_leafs (fn v => v + off)
 fun offsetLitVars off (p, l) = (p, List.map (offsetTermVars off) l)
 
 fun litVars (_, ts) = List.concat (List.map Tree.leafs ts)
