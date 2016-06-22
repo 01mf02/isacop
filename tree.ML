@@ -3,22 +3,17 @@ struct
 
 datatype ('b, 'l) tree = Branch of ('b * ('b, 'l) tree list) | Leaf of 'l
 
-fun map_replace_leafs f (Leaf l) = f l
-  | map_replace_leafs f (Branch (b, nodes)) = Branch (b, map (map_replace_leafs f) nodes)
+fun map_tree (_, fl) (Leaf l) = fl l
+  | map_tree (fb, fl) (Branch (b, nodes)) = fb (b, map (map_tree (fb, fl)) nodes)
 
+fun map_replace_leafs f = map_tree (Branch, f)
 fun map_leafs f = map_replace_leafs (f #> Leaf)
-
-fun map_branches _ (Leaf l) = Leaf l
-  | map_branches f (Branch (b, nodes)) = Branch (f b, List.map (map_branches f) nodes)
-
-fun leafs (Leaf l) = [l]
-  | leafs (Branch (_, nodes)) = List.concat (map leafs nodes)
+fun map_branches f = map_tree (fn (b, nodes) => Branch (f b, nodes), Leaf)
+fun leafs t = map_tree (fn (_, nodes) => List.concat nodes, fn l => [l]) t
+fun branches t = map_tree (fn (b, nodes) => b :: List.concat nodes, fn _ => []) t
 
 fun leaf_of (Leaf l) = l
   | leaf_of _ = raise Fail "leaf_of"
-
-fun branches (Leaf _) = []
-  | branches (Branch (b, nodes)) = b :: List.concat (map branches nodes)
 
 fun path_tree path (Leaf l) = Leaf (path, l)
   | path_tree path (Branch (b, nodes)) = Branch ((path, b), map (path_tree (b :: path)) nodes)
@@ -27,16 +22,13 @@ fun debinarize b br = case br of
     (Branch (b', [n1, n2])) => if b = b' then n1 :: debinarize b n2 else [br]
   | _ => [br]
 
-fun fold_tree (_, fl) (Leaf l) = fl l
-  | fold_tree (fb, fl) (Branch (b, nodes)) = fb (b, map (fold_tree (fb, fl)) nodes)
-
 fun subst_some_leafs subst =
   map_replace_leafs (fn x => Utils.maybe (Leaf x) I (Utils.lookup x subst))
 
 fun subst_all_leafs subst =
   map_leafs (fn x => Option.valOf (Utils.lookup x subst))
 
-fun to_string (sb, sl) = fold_tree (fn (b, nodes) => case nodes of
+fun to_string (sb, sl) = map_tree (fn (b, nodes) => case nodes of
     [] => sb b
   | _  => sb b ^ "(" ^ String.concatWith ", " nodes ^ ")", sl)
 

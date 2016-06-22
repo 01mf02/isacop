@@ -13,6 +13,7 @@ val  forward : (bimap * left) -> right option
 val backward : (bimap * right) -> left option
 
 val domain : bimap -> left list
+val size : bimap -> int
 
 end
 
@@ -46,6 +47,8 @@ end
 fun fromList l = List.foldl (swap #> insert #> fst) (empty (length l + 1)) l
 
 fun domain {forth, ...} = Tab.keys forth
+
+fun size ({maxIndex, ...} : bimap) = maxIndex
 
 end
 

@@ -69,6 +69,7 @@ fun naturalise_variables (acc as (qi, i)) tree = case tree of
   | Tree.Branch (Bin b, nodes) => Tree.Branch (Bin b, map (naturalise_variables acc) nodes)
   | Tree.Leaf (pol, t) => (pol, Tree.subst_all_leafs qi t) |> Tree.Leaf
 
+
 fun skolemise above tree i = case tree of
      Tree.Branch (Quant (Ex e), nodes) =>
       let val skolem = FTerm.A (i, map FTerm.V above)
@@ -86,12 +87,17 @@ fun skolemise above tree i = case tree of
       end
   | Tree.Leaf l => (Tree.Leaf l, i)
 
-fun skolem_tree cm tree =
-  let val naturalised = tree
-    |> Tree.map_leafs (apsnd (to_fterm #> Tree.map_branches (sym_int cm)))
-    |> naturalise_variables ([], 0)
-  in skolemise [] naturalised 0
+val literal_tree_consts =
+  Tree.leafs #> map (Tree.branches o snd) #> List.concat #> distinct (op =)
+
+fun naturalise_tree tree =
+  let val string_tree = Tree.map_leafs (apsnd to_fterm) tree
+      val cm = string_tree |> literal_tree_consts |> SymIntBimap.fromList
+      val naturalise_consts = Tree.map_leafs (apsnd (Tree.map_branches (sym_int cm)))
+  in (string_tree |> naturalise_consts |> naturalise_variables ([], 0), cm)
   end
+
+fun skolem_tree cm = Utils.flip (skolemise []) (SymIntBimap.size cm + 1)
 
 val tree_path_quants =
   Tree.path_tree [] #> Tree.branches #> List.mapPartial (Utils.option_map_snd get_Quant)
