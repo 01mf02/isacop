@@ -13,7 +13,8 @@ type bimaps
 type term_tree
 type lit_tree
 val literal_tree : (string * typ) list -> term -> lit_tree
-val clauses_of_term : term ->  LTerm.lit list list * (bimaps * lit_tree)
+val clauses_of_term : term ->  LTerm.lit list list * SymIntBimap.bimap
+
 
 end
 
@@ -28,21 +29,10 @@ type bimaps = SymIntBimap.bimap * SymIntBimap.bimap
 type term_tree = ((string, string) treeop, term) Tree.tree
 type lit_tree = ((string, string) treeop, bool * term) Tree.tree
 
-fun get_All (All a) = SOME a | get_All _ = NONE
-fun get_Ex  (Ex  e) = SOME e | get_Ex  _ = NONE
-
-fun get_Quant (Bin _) = NONE | get_Quant (Quant q) = SOME q
-
 val free_to_const = map_aterms (fn t => case t of Free x => Const x | _ => t)
-
-fun to_fterm t = case strip_comb t of
-    (Free (x, _), []) => FTerm.V x
-  | (Const (x, _), args) => FTerm.A (x, map to_fterm args)
-  | _ => raise Fail "to_fterm"
 
 fun literal_of_term (@{const "IFOL.Not"} $ t) = (false, t)
   | literal_of_term t = (true, t)
-
 
 (* Convert a term in negation normal form to a syntax tree, where
    bound variables are replaced by constants with the variable name, and
@@ -90,6 +80,12 @@ fun skolemise above tree i = case tree of
 val literal_tree_consts =
   Tree.leafs #> map (Tree.branches o snd) #> List.concat #> distinct (op =)
 
+
+fun to_fterm t = case strip_comb t of
+    (Free (x, _), []) => FTerm.V x
+  | (Const (x, _), args) => FTerm.A (x, map to_fterm args)
+  | _ => raise Fail "to_fterm"
+
 fun naturalise_tree tree =
   let val string_tree = Tree.map_leafs (apsnd to_fterm) tree
       val cm = string_tree |> literal_tree_consts |> SymIntBimap.fromList
@@ -99,60 +95,17 @@ fun naturalise_tree tree =
 
 fun skolem_tree cm = Utils.flip (skolemise []) (SymIntBimap.size cm + 1)
 
-val tree_path_quants =
-  Tree.path_tree [] #> Tree.branches #> List.mapPartial (Utils.option_map_snd get_Quant)
-
-fun skolem (above, x) = (x, List.mapPartial (Option.composePartial (get_All, get_Quant)) above)
-
-val allquantified_variables = List.mapPartial (snd #> get_All)
-val skolems = List.mapPartial (Utils.option_map_snd get_Ex #> Option.map skolem)
-
-fun tree_consts tree = fold Term.add_const_names (Tree.leafs tree |> map snd)
-
-val var_bimap = SymIntBimap.fromList
-
-(* Make sure that hashek is assigned the integer "1", because it is defined
-   that way in mlCoP. *)
-fun const_bimap skolems consts =
-  SymIntBimap.fromList (@{const_name "hashek"} :: map fst skolems @ consts)
-
-fun to_lterm (bimaps as (cm, vm)) t = case strip_comb t of
-    (Free (x, _), []) => FTerm.V (sym_int vm x)
-  | (Const (x, _), args) => FTerm.A (sym_int cm x, map (to_lterm bimaps) args)
-  | _ => raise Fail "to_lterm"
-
 fun strip_quants (Tree.Branch (Quant _, [t])) = strip_quants t
   | strip_quants (Tree.Branch (b, nodes)) = Tree.Branch (b, map strip_quants nodes)
   | strip_quants t = t
 
-val to_preclauses = Tree.debinarize (Bin And) #> map (Tree.debinarize (Bin Or) #> map Tree.leaf_of)
-
-fun to_clauses bimaps = (map o map) (apsnd (to_lterm bimaps) #> LTerm.toLit)
-
-
-fun mk_skolem_term (f, args) =
-  list_comb (Const (f, dummyT), map (fn arg => Free (arg, dummyT)) args)
-
-(* Replace existential free variables by appropriate Skolem terms *)
-fun subst_skolems sklm t = case t of
-    (Free (x, _)) => Utils.maybe t mk_skolem_term (List.find (fn (x', _) => x = x') sklm)
-  | _ => t
-
-fun skolemise_terms sklm = Tree.map_leafs (apsnd (map_aterms (subst_skolems sklm)))
-
-fun distinguish_vars t = IsaUtils.rename_abs_distinct t 0 |> fst
+val to_clauses =
+  Tree.debinarize (Bin And) #> map (Tree.debinarize (Bin Or) #> map (Tree.leaf_of #> LTerm.toLit))
 
 fun clauses_of_term t =
-  let val st = t |> distinguish_vars |> literal_tree []
-      val quants = tree_path_quants st
-      val vars = allquantified_variables quants
-      val sklm = skolems quants
-      val lt = st |> skolemise_terms sklm
-      val consts = tree_consts lt []
-      val bimaps = (const_bimap sklm consts, var_bimap vars)
-      val clauses = lt |> strip_quants |> to_preclauses |> to_clauses bimaps
-      val _ = List.app writeln (Tptp.cnf bimaps clauses |> List.map Tptp.cnf_line)
-  in (clauses, (bimaps, lt))
+  let val (natural, cm) = t |> literal_tree [] |> naturalise_tree
+      val (skolem, _) = skolem_tree cm natural
+  in (skolem |> strip_quants |> to_clauses, cm)
   end
 
 end
@@ -172,7 +125,7 @@ fun raw_isacop_tac lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, con
   let
     val _ = @{assert} ((Thm.term_of concl) aconv @{prop False})
     val prem = IsaUtils.make_conj_rule prems
-    val (matrix, (bimaps, tree)) = clauses_of_thm prem |>> matrix_of_clauses
+    val (matrix, cm) = clauses_of_thm prem |>> matrix_of_clauses
     val opts = {cut_prove = true, cut_reduce = true, cut_extend = false, max_path_len = lim}
     val hashek = 1
     val start_clause = [(hashek, [])]
