@@ -59,26 +59,22 @@ fun literal_tree quants t = case t of
   | t => (map Free quants, free_to_const t) |> subst_bounds |> literal_of_term |> Tree.Leaf
 
 
-fun skolemise tree =
-  tree |> Tree.map_leafs (to_fterm #> Tree.Leaf)
-
-fun subst_vars subst = Tree.map_leafs (fn x => Utils.lookup x subst |> Option.valOf |> Tree.Leaf)
-
 fun get_quant (All a) = a | get_quant (Ex e) = e
-fun set_quant (All a) a' = All a' | set_quant (Ex e) e' = Ex e'
+fun set_quant (All _) a' = All a' | set_quant (Ex _) e' = Ex e'
 
 fun naturalise_variables (acc as (qi, i)) tree = case tree of
     Tree.Branch (Quant q, nodes) =>
       Tree.Branch (Quant (set_quant q i),
         map (naturalise_variables ((get_quant q, i) :: qi, i+1)) nodes)
   | Tree.Branch (Bin b, nodes) => Tree.Branch (Bin b, map (naturalise_variables acc) nodes)
-  | Tree.Leaf (pol, t) => (pol, subst_vars qi t) |> Tree.Leaf
+  | Tree.Leaf (pol, t) => (pol, Tree.subst_all_leafs qi t) |> Tree.Leaf
 
 fun skolemise above tree i = case tree of
-    Tree.Branch (Quant (Ex _), nodes) =>
-      let val nodes' = List.map (Tree.map_leafs (undefined ())) nodes
-          val (nodes'', i') = fold_map (skolemise above) nodes' (i+1)
-      in  (Tree.Branch (Quant (Ex i), nodes''), i')
+     Tree.Branch (Quant (Ex e), nodes) =>
+      let val skolem = FTerm.A (i, map FTerm.V above)
+          val subst = Tree.map_leafs (apsnd (Tree.subst_some_leafs [(e, skolem)]) #> Tree.Leaf)
+          val (nodes', i') = fold_map (skolemise above) (List.map subst nodes) (i+1)
+      in  (Tree.Branch (Quant (Ex i), nodes'), i')
       end
   | Tree.Branch (Quant (All a), nodes) =>
       let val (nodes', i') = fold_map (skolemise (a :: above)) nodes i
@@ -88,7 +84,14 @@ fun skolemise above tree i = case tree of
       let val (nodes', i') = fold_map (skolemise above) nodes i
       in  (Tree.Branch (Bin b, nodes'), i')
       end
-  | Tree.Leaf l => l
+  | Tree.Leaf l => (Tree.Leaf l, i)
+
+fun skolem_tree cm tree =
+  let val naturalised = tree
+    |> Tree.map_leafs (apsnd (to_fterm #> Tree.map_branches (sym_int cm)) #> Tree.Leaf)
+    |> naturalise_variables ([], 0)
+  in skolemise [] naturalised 0
+  end
 
 val tree_path_quants =
   Tree.path_tree [] #> Tree.branches #> List.mapPartial (Utils.option_map_snd get_Quant)

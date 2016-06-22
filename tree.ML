@@ -6,6 +6,9 @@ datatype ('b, 'l) tree = Branch of ('b * ('b, 'l) tree list) | Leaf of 'l
 fun map_leafs f (Leaf l) = f l
   | map_leafs f (Branch (b, nodes)) = Branch (b, map (map_leafs f) nodes)
 
+fun map_branches _ (Leaf l) = Leaf l
+  | map_branches f (Branch (b, nodes)) = Branch (f b, List.map (map_branches f) nodes)
+
 fun leafs (Leaf l) = [l]
   | leafs (Branch (_, nodes)) = List.concat (map leafs nodes)
 
@@ -24,6 +27,12 @@ fun debinarize b br = case br of
 
 fun fold_tree (_, fl) (Leaf l) = fl l
   | fold_tree (fb, fl) (Branch (b, nodes)) = fb (b, map (fold_tree (fb, fl)) nodes)
+
+fun subst_some_leafs subst =
+  map_leafs (fn x => Utils.maybe (Leaf x) I (Utils.lookup x subst))
+
+fun subst_all_leafs subst =
+  map_leafs (fn x => Leaf (Option.valOf (Utils.lookup x subst)))
 
 fun to_string (sb, sl) = fold_tree (fn (b, nodes) => case nodes of
     [] => sb b
