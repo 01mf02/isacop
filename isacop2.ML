@@ -12,7 +12,7 @@ sig
 type syntax_tree
 type skolem_tree
 val syntax_tree : (string * typ) list -> term -> syntax_tree
-val skolem_of_term : term -> skolem_tree * SymIntBimap.bimap
+val skolems_of_terms : term list -> skolem_tree list * SymIntBimap.bimap
 val clauses_of_skolem : skolem_tree -> LTerm.lit list list
 
 end
@@ -98,14 +98,20 @@ val to_clauses =
 
 val clauses_of_skolem = strip_quants #> to_clauses
 
-fun skolem_of_term t =
-  let val literal = t |> syntax_tree [] |> literal_tree
-      (*make sure that the integer index of all constants is > 0,
-        because only then can we distinguish positive from negative literals*)
-      val cm = SymIntBimap.fromList ("" :: literal_tree_consts literal)
+fun skolem_of_literal literal =
+  (*make sure that the integer index of all constants is > 0,
+    because only then can we distinguish positive from negative literals*)
+  let val cm = SymIntBimap.fromList ("" :: literal_tree_consts literal)
       val natural = literal |> naturalise_consts cm |> naturalise_variables ([], 0)
   in (skolem_tree cm natural |> fst, cm)
   end
+
+fun dest_And (Tree.Branch (Bin And, nodes)) = nodes
+  | dest_And _ = raise Fail "dest_And"
+
+val skolems_of_terms =
+   map (syntax_tree [] #> literal_tree) #> curry Tree.Branch (Bin And)
+   #> skolem_of_literal #>> dest_And
 
 end
 
@@ -115,7 +121,9 @@ struct
 
 val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20);
 
-val matrix_of_clauses = map_index swap #> Matrix.from_list
+val label_clausess =
+  map_index (fn (th_i, th) => map_index (fn (cl_i, cl) => (cl, (th_i, cl_i))) th)
+val matrix_of_clausess = label_clausess #> List.concat #> Matrix.from_list
 
 fun reconstruct_tac _ = (@{print} "Success."; K no_tac)
 
@@ -124,14 +132,15 @@ val hashek_true = @{lemma "hashek" by (simp add: hashek_def)}
 fun raw_isacop_tac lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, concl: cterm, ...} =>
   let
     val _ = @{assert} ((Thm.term_of concl) aconv @{prop False})
-    val prem = IsaUtils.make_conj_rule prems
-    val t = prem |> Thm.concl_of |> FOLogic.dest_Trueprop
-    val (skolem, cm) = Expansion_Tree.skolem_of_term t
-    val clauses = skolem |> Expansion_Tree.clauses_of_skolem
-    val _ = clauses |> Tptp.cnf cm |> List.app (Tptp.show_cnf_line #> writeln)
+
+    val ts = prems |> map (Thm.concl_of #> FOLogic.dest_Trueprop)
+    val (skolems, cm) = Expansion_Tree.skolems_of_terms ts
+    val clausess = skolems |> map Expansion_Tree.clauses_of_skolem
+
+    val _ = clausess |> List.concat |> Tptp.cnf cm |> List.app (Tptp.show_cnf_line #> writeln)
     val opts = {cut_prove = true, cut_reduce = true, cut_extend = false, max_path_len = lim}
     val start_clause = [(sym_int cm @{const_name hashek}, [])]
-    val proof = mlCoP.iterative_prove opts (matrix_of_clauses clauses) start_clause
+    val proof = mlCoP.iterative_prove opts (matrix_of_clausess clausess) start_clause
     val tac = Utils.maybe (K no_tac) reconstruct_tac proof
   in HEADGOAL tac
   end)
