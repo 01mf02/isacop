@@ -9,6 +9,9 @@ Tableau prover with proof reconstruction
 signature EXPANSION_TREE =
 sig
 
+type binop
+datatype ('a, 'e) quantifier = All of 'a | Ex of 'e
+datatype ('a, 'e) treeop = Bin of binop | Quant of ('a, 'e) quantifier
 type syntax_tree
 type skolem_tree
 val syntax_tree : (string * typ) list -> term -> syntax_tree
@@ -115,6 +118,31 @@ val skolems_of_terms =
 
 end
 
+structure Deskolemisation =
+struct
+
+val clause_copies = List.mapPartial CProof.destResolution #> map (snd ##> #4)
+
+val merge_copies =
+  map (fn (offset, (th_i, _)) => [(th_i, [offset])]) #> Utils.unionsWith (op =) (op @)
+
+open Expansion_Tree
+
+fun label_tree offset = Edge_Tree.none_edges #> Edge_Tree.map_branches_edges
+  (fn b => fn _ => case b of Quant (All _) => SOME offset | _ => NONE)
+
+fun copy_tree trees (th_i, offsets) =
+  let val tree = List.nth (trees, th_i)
+  in (th_i, map (Utils.flip label_tree tree) offsets)
+  end
+
+fun deskolemise skolems (subst, proof) =
+  let val copies = proof |> clause_copies |> merge_copies |> map (copy_tree skolems)
+  in copies
+  end
+
+end
+
 
 structure IsaCoP =
 struct
@@ -125,7 +153,10 @@ val label_clausess =
   map_index (fn (th_i, th) => map_index (fn (cl_i, cl) => (cl, (th_i, cl_i))) th)
 val matrix_of_clausess = label_clausess #> List.concat #> Matrix.from_list
 
-fun reconstruct_tac _ = (@{print} "Success."; K no_tac)
+fun reconstruct_tac (skolems, cm) (subst, proof) =
+  let val _ = Deskolemisation.deskolemise skolems (subst, proof)
+  in @{print} "Success."; K no_tac
+  end
 
 val hashek_true = @{lemma "hashek" by (simp add: hashek_def)}
 
@@ -141,7 +172,7 @@ fun raw_isacop_tac lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, con
     val opts = {cut_prove = true, cut_reduce = true, cut_extend = false, max_path_len = lim}
     val start_clause = [(sym_int cm @{const_name hashek}, [])]
     val proof = mlCoP.iterative_prove opts (matrix_of_clausess clausess) start_clause
-    val tac = Utils.maybe (K no_tac) reconstruct_tac proof
+    val tac = Utils.maybe (K no_tac) (reconstruct_tac (skolems, cm)) proof
   in HEADGOAL tac
   end)
 

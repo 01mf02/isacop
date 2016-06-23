@@ -38,4 +38,11 @@ fun iterate_until b f x =
   else case f x of SOME y => SOME y
                  | NONE => iterate_until b f (x+1)
 
+fun mapEq eq (k, v) f = map (fn (k', v') => if eq (k, k') then (k, f (v, v')) else (k', v'))
+
+fun unionWith eq f = fold (fn (k, v) => fn acc =>
+  if member eq (map fst acc) k then mapEq eq (k, v) f acc else (k, v) :: acc)
+
+fun unionsWith eq f xs = fold (unionWith eq f) xs []
+
 end

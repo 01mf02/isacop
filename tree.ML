@@ -45,3 +45,22 @@ fun deep (Branch (f, nodes)) = f (map deep nodes)
   | deep (Leaf l) = l
 
 end
+
+structure Edge_Tree =
+struct
+
+open Tree
+
+type ('e, 'b, 'l) edge_tree = ('e * 'b, 'e * 'l) tree
+
+fun none_edges (Leaf l) = (Leaf (NONE, l))
+  | none_edges (Branch (b, nodes)) = Branch ((NONE, b), map none_edges nodes)
+
+fun map_edge f (Leaf (e, l)) = Leaf (f e, l)
+  | map_edge f (Branch ((e, b), nodes)) = Branch ((f e, b), nodes)
+
+fun map_branches_edges _ (Leaf l) = Leaf l
+  | map_branches_edges f (Branch ((l, b), nodes)) =
+      Branch ((l, b), map (map_branches_edges f o map_edge (f b)) nodes)
+
+end
