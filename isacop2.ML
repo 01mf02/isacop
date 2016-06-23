@@ -127,18 +127,31 @@ val merge_copies =
   map (fn (offset, (th_i, _)) => [(th_i, [offset])]) #> Utils.unionsWith (op =) (op @)
 
 open Expansion_Tree
+open Tree
 
-fun label_tree offset = Edge_Tree.none_edges #> Edge_Tree.map_branches_edges
-  (fn b => fn _ => case b of Quant (All _) => SOME offset | _ => NONE)
+fun merge_trees eq offset t1 t2 = case (t1, t2) of
+    (Branch ((e, Quant (All x)), nodes), Branch (Quant (All y), [snode])) =>
+      let val _ = @{assert} (x = y)
+          val enodes = Edge_Tree.edges_nodes nodes
+          val i = find_index (eq x offset o hd o fst) enodes
+          val nodes' = if i < 0 then Edge_Tree.make_edges [offset] snode :: nodes
+            else nth_map i (fn (offsets, enode) => (offset :: offsets, merge_trees eq offset enode snode)) enodes |> map Edge_Tree.set_edge
+      in Branch ((e, Quant (All x)), nodes')
+      end
+  | (Branch ((e, Quant (Ex x)), [node]), (Branch (Quant (Ex y), [snode]))) =>
+      let val _ = @{assert} (x = y)
+      in Branch ((e, Quant (Ex x)), [merge_trees eq offset node snode])
+      end
+  | (_, _) => t1
 
-fun copy_tree trees (th_i, offsets) =
-  let val tree = List.nth (trees, th_i)
-  in (th_i, map (Utils.flip label_tree tree) offsets)
-  end
+fun offsets_tree eq tree offsets = case offsets of
+    off1::offs => fold (fn off => fn tr => merge_trees eq off tr tree) offs (Edge_Tree.make_edges [off1] tree)
+  | [] => raise Fail "offsets_tree"
 
 fun deskolemise skolems (subst, proof) =
-  let val copies = proof |> clause_copies |> merge_copies |> map (copy_tree skolems)
-  in copies
+  let val copies = proof |> clause_copies |> merge_copies
+      fun eq x off1 off2 = FUnify.eqTerm subst (FTerm.V (x + off1), FTerm.V (x + off2))
+  in map (fn (i, offsets) => (i, offsets_tree eq (List.nth (skolems, i)) offsets)) copies
   end
 
 end

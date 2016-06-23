@@ -189,6 +189,9 @@ val unifyTerms :
 val unifyLit :
   (''c, ''v) subst -> ''p * (''c, ''v) term list -> ''p * (''c, ''v) term list -> (''c, ''v) subst
 
+val eqTerm :
+  (''c, ''v) subst -> (''c, ''v) term * (''c, ''v) term -> bool
+
 val eqLit :
   (''c, ''v) subst -> ''p * (''c, ''v) term list -> ''p * (''c, ''v) term list -> bool
 
