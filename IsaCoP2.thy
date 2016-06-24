@@ -14,13 +14,14 @@ begin
 
 section \<open>Haskek\<close>
 
-(* In memoriam Jaroslav Hašek. *)
+(* In memoriam Jaroslav Hašek, creator of "Švejk". *)
 definition "hashek == True"
 
 
 section \<open>Prover and tactic\<close>
 
 declare [[ML_print_depth = 20]]
+declare [[ML_exception_trace = true]]
 
 ML_file "utils.ML"
 ML_file "tree.ML"
@@ -30,7 +31,6 @@ ML_file "isautils.ML"
 ML_file "tptp.ML"
 ML_file "isacop2.ML"
 
-declare [[ML_exception_trace = true]]
 
 (* Miller's example: Drinker's Paradox *)
 lemma "\<exists>x. \<forall>y. P(x) \<longrightarrow> P(y)"

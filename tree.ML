@@ -72,4 +72,16 @@ fun set_edge (e, Leaf (_, l)) = Leaf (e, l)
 
 fun edges_nodes nodes = map (fn n => (edge n, n)) nodes
 
+structure Edge_Tree2 =
+struct
+
+datatype ('e, 'b, 'l) edge_tree = ELeaf of 'l | EBranch of 'b * (('e * ('e, 'b, 'l) edge_tree) list)
+
+fun from_tree _ (Tree.Leaf l) = ELeaf l
+  | from_tree e (Tree.Branch (b, nodes)) = EBranch (b, map (fn n => (e, from_tree e n)) nodes)
+
+
+
+end
+
 end

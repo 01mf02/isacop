@@ -148,10 +148,19 @@ fun offsets_tree eq tree offsets = case offsets of
     off1::offs => fold (fn off => fn tr => merge_trees eq off tr tree) offs (Edge_Tree.make_edges [off1] tree)
   | [] => raise Fail "offsets_tree"
 
-fun deskolemise skolems (subst, proof) =
+
+fun expansion_tree ths (i, tree) = (i, Leaf (tree, List.nth (ths, i)))
+
+(* fun expand (Leaf (off, (th, tree))) = case tree of
+    Branch (Quant (All x), nodes) => Branch ((off, Quant (All x)),
+      map (fn n => Leaf (edge n, (th, Branch (Quant (All x)) nodes) *)
+
+fun deskolemise ths skolems (subst, proof) =
   let val copies = proof |> clause_copies |> merge_copies
       fun eq x off1 off2 = FUnify.eqTerm subst (FTerm.V (x + off1), FTerm.V (x + off2))
-  in map (fn (i, offsets) => (i, offsets_tree eq (List.nth (skolems, i)) offsets)) copies
+      val copies_trees = map (fn (i, offsets) => (i, offsets_tree eq (List.nth (skolems, i)) offsets)) copies
+      val expansion_trees = map (expansion_tree ths) copies_trees
+  in 1
   end
 
 end
@@ -166,8 +175,8 @@ val label_clausess =
   map_index (fn (th_i, th) => map_index (fn (cl_i, cl) => (cl, (th_i, cl_i))) th)
 val matrix_of_clausess = label_clausess #> List.concat #> Matrix.from_list
 
-fun reconstruct_tac (skolems, cm) (subst, proof) =
-  let val _ = Deskolemisation.deskolemise skolems (subst, proof)
+fun reconstruct_tac ths (skolems, cm) (subst, proof) =
+  let val _ = Deskolemisation.deskolemise ths skolems (subst, proof)
   in @{print} "Success."; K no_tac
   end
 
@@ -185,7 +194,7 @@ fun raw_isacop_tac lim = Subgoal.FOCUS (fn {context = ctxt, prems: thm list, con
     val opts = {cut_prove = true, cut_reduce = true, cut_extend = false, max_path_len = lim}
     val start_clause = [(sym_int cm @{const_name hashek}, [])]
     val proof = mlCoP.iterative_prove opts (matrix_of_clausess clausess) start_clause
-    val tac = Utils.maybe (K no_tac) (reconstruct_tac (skolems, cm)) proof
+    val tac = Utils.maybe (K no_tac) (reconstruct_tac prems (skolems, cm)) proof
   in HEADGOAL tac
   end)
 
