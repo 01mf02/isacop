@@ -9,7 +9,7 @@ Tableau prover with proof reconstruction
 signature EXPANSION_TREE =
 sig
 
-type binop
+datatype binop = And | Or
 datatype ('a, 'e) quantifier = All of 'a | Ex of 'e
 datatype ('a, 'e) treeop = Bin of binop | Quant of ('a, 'e) quantifier
 type syntax_tree
@@ -118,8 +118,26 @@ val skolems_of_terms =
 
 end
 
-structure Deskolemisation =
+signature DESKOLEMISATION =
+sig
+
+type ('a, 'f) etree
+
+val deskolemise :
+  thm list -> Expansion_Tree.skolem_tree list -> (Unif.subst * (int * int) mlCoP.proof) -> int
+
+(* TODO: Tame this monster. :) *)
+val expand_leaf :
+  Unif.subst -> (LTerm.variable * term) list * (LTerm.term * term) list ->
+  thm * ('e, 'f) etree -> ('e, thm * ('e, 'f) etree) etree
+
+end
+
+structure Deskolemisation : DESKOLEMISATION =
 struct
+
+type ('a, 'f) etree = (Unif.offset, (LTerm.variable, 'a) Expansion_Tree.treeop, 'f) Edge_Tree.edge_tree
+
 
 val clause_copies = List.mapPartial CProof.destResolution #> map (snd ##> #4)
 
@@ -147,17 +165,37 @@ fun offsets_tree eq tree offsets = case offsets of
   | [] => raise Fail "offsets_tree"
 
 
-fun expansion_tree ths (i, tree) = (i, Tree.Leaf (tree, List.nth (ths, i)))
+fun tau subst (freshs, witnesses) x = undefined ()
 
-(* fun expand (Leaf (off, (th, tree))) = case tree of
-    Branch (Quant (All x), nodes) => Branch ((off, Quant (All x)),
-      map (fn n => Leaf (edge n, (th, Branch (Quant (All x)) nodes) *)
+fun expand_leaf sub (freshs, witnesses) (th, tree) =
+  (case tree of
+    Edge_Tree.Branch (Quant (All x), [(off, node)]) =>
+      (case Subst.subst_until sub (K false) (FTerm.V (x + off)) of
+        Tree.Leaf y => undefined () (* look up variable in freshs or invent new fresh variable *)
+      | _ =>
+        (case tau sub (freshs, witnesses) (x + off) of
+          NONE => undefined () (* do not expand leaf, we miss a witness *)
+        | SOME y => undefined () (* instantiate theorem with y *)
+        )
+      )
+  | Edge_Tree.Branch (Quant (All x), nodes) =>
+      Edge_Tree.Branch (Quant (All x), map (fn (off, node) => (off,
+        Edge_Tree.Leaf (th, Edge_Tree.Branch (Quant (All x), [(off, node)])))) nodes)
+  | Edge_Tree.Branch (Quant (Ex x), [(off, node)]) =>
+      let val th' = th (* instantiate existential and obtain witness *)
+      in  Edge_Tree.Branch (Quant (Ex x), [(off,
+            Edge_Tree.Leaf (th', node))])
+      end
+  )
+
+fun expansion_tree ths (i, tree) = (i, Edge_Tree.Leaf (tree, List.nth (ths, i)))
 
 fun deskolemise ths skolems (subst, proof) =
   let val copies = proof |> clause_copies |> merge_copies
       fun eq x off1 off2 = FUnify.eqTerm subst (FTerm.V (x + off1), FTerm.V (x + off2))
       val copies_trees = map (fn (i, offsets) => (i, offsets_tree eq (List.nth (skolems, i)) offsets)) copies
       val expansion_trees = map (expansion_tree ths) copies_trees
+      val expansion_tree = (* Edge_Tree.Branch (Bin And, map (fn tr => ([], tr)) expansion_trees) *) 0
   in 1
   end
 
