@@ -127,29 +127,27 @@ val merge_copies =
   map (fn (offset, (th_i, _)) => [(th_i, [offset])]) #> Utils.unionsWith (op =) (op @)
 
 open Expansion_Tree
-open Tree
 
 fun merge_trees eq offset t1 t2 = case (t1, t2) of
-    (Branch ((e, Quant (All x)), nodes), Branch (Quant (All y), [snode])) =>
+    (Edge_Tree.Branch (Quant (All x), nodes), Tree.Branch (Quant (All y), [snode])) =>
       let val _ = @{assert} (x = y)
-          val enodes = Edge_Tree.edges_nodes nodes
-          val i = find_index (eq x offset o hd o fst) enodes
-          val nodes' = if i < 0 then Edge_Tree.make_edges [offset] snode :: nodes
-            else nth_map i (fn (offsets, enode) => (offset :: offsets, merge_trees eq offset enode snode)) enodes |> map Edge_Tree.set_edge
-      in Branch ((e, Quant (All x)), nodes')
+          val i = find_index (eq x offset o hd o fst) nodes
+          val nodes' = if i < 0 then ([offset], Edge_Tree.from_tree [offset] snode) :: nodes
+            else nth_map i (fn (offsets, enode) => (offset :: offsets, merge_trees eq offset enode snode)) nodes
+      in Edge_Tree.Branch (Quant (All x), nodes')
       end
-  | (Branch ((e, Quant (Ex x)), [node]), (Branch (Quant (Ex y), [snode]))) =>
+  | (Edge_Tree.Branch (Quant (Ex x), [(e, node)]), (Tree.Branch (Quant (Ex y), [snode]))) =>
       let val _ = @{assert} (x = y)
-      in Branch ((e, Quant (Ex x)), [merge_trees eq offset node snode])
+      in Edge_Tree.Branch (Quant (Ex x), [(e, merge_trees eq offset node snode)])
       end
   | (_, _) => t1
 
 fun offsets_tree eq tree offsets = case offsets of
-    off1::offs => fold (fn off => fn tr => merge_trees eq off tr tree) offs (Edge_Tree.make_edges [off1] tree)
+    off1::offs => fold (fn off => fn tr => merge_trees eq off tr tree) offs (Edge_Tree.from_tree [off1] tree)
   | [] => raise Fail "offsets_tree"
 
 
-fun expansion_tree ths (i, tree) = (i, Leaf (tree, List.nth (ths, i)))
+fun expansion_tree ths (i, tree) = (i, Tree.Leaf (tree, List.nth (ths, i)))
 
 (* fun expand (Leaf (off, (th, tree))) = case tree of
     Branch (Quant (All x), nodes) => Branch ((off, Quant (All x)),

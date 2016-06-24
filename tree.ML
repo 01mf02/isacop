@@ -49,39 +49,9 @@ end
 structure Edge_Tree =
 struct
 
-open Tree
+datatype ('e, 'b, 'l) edge_tree = Leaf of 'l | Branch of 'b * (('e * ('e, 'b, 'l) edge_tree) list)
 
-type ('e, 'b, 'l) edge_tree = ('e * 'b, 'e * 'l) tree
-
-fun make_edges e (Leaf l) = (Leaf (e, l))
-  | make_edges e (Branch (b, nodes)) = Branch ((e, b), map (make_edges e) nodes)
-
-fun map_edge f (Leaf (e, l)) = Leaf (f e, l)
-  | map_edge f (Branch ((e, b), nodes)) = Branch ((f e, b), nodes)
-
-(* TODO: Not used right now. *)
-fun map_branches_edges _ (Leaf l) = Leaf l
-  | map_branches_edges f (Branch ((l, b), nodes)) =
-      Branch ((l, b), map (map_branches_edges f o map_edge (f b)) nodes)
-
-fun edge (Leaf (e, _)) = e
-  | edge (Branch ((e, _), _)) = e
-
-fun set_edge (e, Leaf (_, l)) = Leaf (e, l)
-  | set_edge (e, Branch ((_, b), nodes)) = Branch ((e, b), nodes)
-
-fun edges_nodes nodes = map (fn n => (edge n, n)) nodes
-
-structure Edge_Tree2 =
-struct
-
-datatype ('e, 'b, 'l) edge_tree = ELeaf of 'l | EBranch of 'b * (('e * ('e, 'b, 'l) edge_tree) list)
-
-fun from_tree _ (Tree.Leaf l) = ELeaf l
-  | from_tree e (Tree.Branch (b, nodes)) = EBranch (b, map (fn n => (e, from_tree e n)) nodes)
-
-
-
-end
+fun from_tree _ (Tree.Leaf l) = Leaf l
+  | from_tree e (Tree.Branch (b, nodes)) = Branch (b, map (fn n => (e, from_tree e n)) nodes)
 
 end
