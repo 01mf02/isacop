@@ -266,13 +266,12 @@ type offset = int
 type subst = (LTerm.constant, LTerm.variable) Subst.subst
 
 fun unify_contrapos sub off (_, args1) (args2, rest, vars, _) =
-    if vars = 0 then ((FUnify.unifyTerms sub (args1, args2), off), rest)
-    else
-      let val args2' = List.map (LTerm.offsetTermVars off) args2
-          val sub' = FUnify.unifyTerms sub (args1, args2')
-          val rest' = List.map (LTerm.offsetLitVars off) rest
-      in  ((sub', vars + off), rest')
-      end
+  if vars = 0 then ((FUnify.unifyTerms sub (args1, args2), off), rest)
+  else
+    let val offTV = List.map (LTerm.offsetTermVars off)
+        val offLV = List.map (LTerm.offsetLitVars off)
+    in  ((FUnify.unifyTerms sub (args1, offTV args2), vars + off), offLV rest)
+    end
 
 fun eq (sub, _) l1 l2 = FUnify.eqLit sub l1 l2
 
