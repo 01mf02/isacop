@@ -20,6 +20,8 @@ val clauses_of_skolem : skolem_tree -> LTerm.lit list list
 
 end
 
+(* TODO: this structure does not contain anything about expansion trees,
+   change it to something more appropriate like "syntax tree" *)
 structure Expansion_Tree : EXPANSION_TREE =
 struct
 
@@ -123,8 +125,14 @@ sig
 
 type ('a, 'f) etree
 
+
+
+type thm_id = int
+type cls_id = int
+
 val deskolemise :
-  thm list -> Expansion_Tree.skolem_tree list -> (Unif.subst * (int * int) mlCoP.proof) -> int
+  thm list -> Expansion_Tree.skolem_tree list ->
+  (Unif.subst * (thm_id * cls_id) mlCoP.proof) -> int
 
 (* TODO: Tame this monster. :) *)
 val expand_leaf :
@@ -136,32 +144,47 @@ end
 structure Deskolemisation : DESKOLEMISATION =
 struct
 
-type ('a, 'f) etree = (Unif.offset, (LTerm.variable, 'a) Expansion_Tree.treeop, 'f) Edge_Tree.edge_tree
+type ('e, 'f) etree =
+  (Unif.offset, (LTerm.variable, 'e) Expansion_Tree.treeop, 'f) Edge_Tree.edge_tree
 
+type thm_id = int
+type cls_id = int
+
+val xx = List.mapPartial CProof.destResolution #> map snd
 
 val clause_copies = List.mapPartial CProof.destResolution #> map (snd ##> #4)
 
+(* TODO: forgets about clause id -- is this really wanted? *)
 val merge_copies =
   map (fn (offset, (th_i, _)) => [(th_i, [offset])]) #> Utils.unionsWith (op =) (op @)
 
 open Expansion_Tree
 
-fun merge_trees eq offset t1 t2 = case (t1, t2) of
+(* every edge for a variable v consists of a list of offsets such that
+   for every two offsets o1 and o2 in the list, v+o1 is equivalent to v+o2 *)
+
+(* make t obsolete and instead reconstruct t by deleting all nodes from expansion tree *)
+fun merge_trees eq t offset et = case (et, t) of
     (Edge_Tree.Branch (Quant (All x), nodes), Tree.Branch (Quant (All y), [snode])) =>
       let val _ = @{assert} (x = y)
           val i = find_index (eq x offset o hd o fst) nodes
-          val nodes' = if i < 0 then ([offset], Edge_Tree.from_tree [offset] snode) :: nodes
-            else nth_map i (fn (offsets, enode) => (offset :: offsets, merge_trees eq offset enode snode)) nodes
+          val nodes' =
+            if i < 0 then ([offset], Edge_Tree.from_tree [offset] snode) :: nodes
+            else nth_map i (fn (offsets, enode) =>
+              (offset :: offsets, merge_trees eq snode offset enode)) nodes
       in Edge_Tree.Branch (Quant (All x), nodes')
       end
-  | (Edge_Tree.Branch (Quant (Ex x), [(e, node)]), (Tree.Branch (Quant (Ex y), [snode]))) =>
+  | (Edge_Tree.Branch (Quant (Ex x), [(e, enode)]), (Tree.Branch (Quant (Ex y), [snode]))) =>
       let val _ = @{assert} (x = y)
-      in Edge_Tree.Branch (Quant (Ex x), [(e, merge_trees eq offset node snode)])
+      in Edge_Tree.Branch (Quant (Ex x), [(e, merge_trees eq snode offset enode)])
       end
-  | (_, _) => t1
+  (* this merge operation is only valid for prenex normal form
+     TODO: adapt this case when giving up prenex normal form *)
+  | (_, _) => et
+
 
 fun offsets_tree eq tree offsets = case offsets of
-    off1::offs => fold (fn off => fn tr => merge_trees eq off tr tree) offs (Edge_Tree.from_tree [off1] tree)
+    off1::offs => fold (merge_trees eq tree) offs (Edge_Tree.from_tree [off1] tree)
   | [] => raise Fail "offsets_tree"
 
 
@@ -205,7 +228,7 @@ end
 structure IsaCoP =
 struct
 
-val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20);
+val depth_limit = Attrib.setup_config_int @{binding isacop_depth_limit} (K 20)
 
 val label_clausess =
   map_index (fn (th_i, th) => map_index (fn (cl_i, cl) => (cl, (th_i, cl_i))) th)

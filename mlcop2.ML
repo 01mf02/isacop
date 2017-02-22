@@ -9,11 +9,13 @@ signature FTERM =
 sig
 
 type ('c, 'v) term
+type ('p, 'c, 'v) lit
 
 val A : ('c * ('c, 'v) term list) -> ('c, 'v) term
 val V : 'v -> ('c, 'v) term
 
 val destApp : ('c, 'v) term -> ('c * ('c, 'v) term list)
+val litVars : ('p, 'c, 'v) lit -> 'v list
 
 end
 
@@ -21,12 +23,15 @@ structure FTerm : FTERM =
 struct
 
 type ('c, 'v) term = ('c, 'v) Tree.tree
+type ('p, 'c, 'v) lit = 'p * ('c, 'v) term list
 
 val A = Tree.Branch
 val V = Tree.Leaf
 
 fun destApp (Tree.Branch (f, args)) = (f, args)
   | destApp _ = raise Fail "destApp"
+
+fun litVars (_, ts) = List.concat (List.map Tree.leafs ts)
 
 end
 
@@ -47,7 +52,6 @@ val negateLit : lit -> lit
 val offsetTermVars : int -> term -> term
 val offsetLitVars : int -> lit -> lit
 
-val litVars : lit -> variable list
 val clauseVars : clause -> variable list
 
 end
@@ -72,8 +76,7 @@ fun negateLit (i, l) = (~i, l)
 fun offsetTermVars off = Tree.map_leafs (fn v => v + off)
 fun offsetLitVars off (p, l) = (p, List.map (offsetTermVars off) l)
 
-fun litVars (_, ts) = List.concat (List.map Tree.leafs ts)
-fun clauseVars cl = List.concat (List.map litVars cl)
+fun clauseVars cl = List.concat (List.map FTerm.litVars cl)
 
 end
 
@@ -297,14 +300,17 @@ type ('l, 'r) proof
 val map_step : ('a -> 'b) -> ('a, 'c) proof_step -> ('b, 'c) proof_step
 val literal : ('l, 'r) proof_step -> 'l
 
+(*
 val fold_proof : ('a -> 'b) ->
       ('c * 'd -> 'e * 'd) ->
         ('a, 'c) proof_step ->
           'd -> ('b, 'e) proof_step * 'd
 val fold_resolution : ('r * 'b -> 's * 'b) -> ('l, 'r) proof_step -> 'b -> ('l, 's) proof_step * 'b
-val destResolution : ('a, 'b) proof_step -> ('a * 'b) option
+*)
 
-val proof_variables : (LTerm.lit, 'a) proof_step list -> LTerm.variable list
+val destResolution : ('l, 'r) proof_step -> ('l * 'r) option
+
+val proof_variables : (('p, 'c, 'v) FTerm.lit, 'a) proof_step list -> 'v list
 
 end
 
@@ -312,7 +318,7 @@ end
 structure CProof : CPROOF =
 struct
 
-(* 'l stands for literal, and 'd for the data attached to a resolution step *)
+(* 'l stands for literal, and 'r for the data attached to a resolution step *)
 datatype ('l, 'r) proof_step =
     Lemma of 'l
   | Path of 'l
@@ -327,19 +333,22 @@ fun literal (Lemma l) = l
   | literal (Path l) = l
   | literal (Resolution (l, _)) = l
 
+(*
 fun fold_resolution f (Resolution (l, r)) acc =
       let val (r', acc') = f (r, acc) in (Resolution (l, r'), acc') end
   | fold_resolution _ (Lemma l) acc = (Lemma l, acc)
   | fold_resolution _ (Path  l) acc = (Path l, acc)
 
 fun fold_proof f g p acc = fold_resolution g (map_step f p) acc
+*)
 
 fun destResolution (Resolution r) = SOME r
   | destResolution _ = NONE
 
+
 (* We cannot do eta-conversion here, otherwise we get an ML error:
    "Type variable is free in surrounding scope" *)
-fun proof_variables p = List.concat (map (LTerm.litVars o literal) p)
+fun proof_variables p = List.concat (map (FTerm.litVars o literal) p)
 
 end
 
